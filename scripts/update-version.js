@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
 // Типы обновления версии
 const UPDATE_TYPES = {
@@ -18,7 +19,11 @@ function getCurrentVersion() {
 // Обновляем версию
 function updateVersion(type) {
   const versionPath = path.join(process.cwd(), 'version.json');
+  const packagePath = path.join(process.cwd(), 'package.json');
+  
+  // Читаем данные версии
   const versionData = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
+  const packageData = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
   
   const [major, minor, patch] = versionData.version.split('.').map(Number);
   
@@ -44,19 +49,30 @@ function updateVersion(type) {
   
   // Получаем хеш последнего коммита
   try {
-    const { execSync } = require('child_process');
     const commitHash = execSync('git rev-parse --short HEAD').toString().trim();
     versionData.commitHash = commitHash;
   } catch (error) {
     console.warn('Не удалось получить хеш коммита:', error.message);
   }
   
+  // Обновляем версию в package.json
+  packageData.version = newVersion;
+  
   // Записываем обновленные данные
   fs.writeFileSync(versionPath, JSON.stringify(versionData, null, 2));
+  fs.writeFileSync(packagePath, JSON.stringify(packageData, null, 2));
   
   console.log(`Версия обновлена: ${newVersion}`);
   console.log(`Дата сборки: ${versionData.buildDate}`);
   console.log(`Коммит: ${versionData.commitHash}`);
+  
+  // Создаем Git тег для новой версии
+  try {
+    execSync(`git tag -a v${newVersion} -m "Release version ${newVersion}"`);
+    console.log(`Создан тег Git: v${newVersion}`);
+  } catch (error) {
+    console.warn('Не удалось создать Git тег:', error.message);
+  }
 }
 
 // Получаем тип обновления из аргументов командной строки
