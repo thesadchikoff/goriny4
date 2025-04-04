@@ -1,0 +1,208 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  userId     Int       @default(autoincrement()) @map("user_id")
+  id         String    @id
+  username   String
+  login      String?   @unique
+  isBlocked  Boolean   @default(false)
+  isAdmin    Boolean   @default(false)
+  currency   Currency? @relation(fields: [currencyId], references: [id], onDelete: Cascade)
+  currencyId Int?      @map("currency_id")
+  wallet     Wallet?   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  walletId   String?   @unique @map("wallet_id")
+
+  totalAmountAdd            Int                  @default(0) @map("total_amount_add")
+  totalAmountReplenish      Int                  @default(0) @map("total_amount_replenish")
+  cuid                      String?              @unique @default(cuid())
+  isFreezeTransfer          Boolean              @default(false) @map("is_freeze_transfer")
+  createdAt                 DateTime             @default(now()) @map("created_at")
+  Contract                  Contract[]
+  SellerContractTransaction ContractTransaction[] @relation("seller")
+  BuyerContractTransaction  ContractTransaction? @relation("buyer")
+  Requisite                 Requisite[]
+  Code                      Code[]               @relation(name: "subscribers")
+  myCodes                   Code[]               @relation(name: "creator")
+  BuyContractTransactionId  String?
+  SellContractTransactionId String?
+  AddressBook               AddressBook[]
+  TicketPersonal            Ticket[]             @relation(name: "initiator")
+  TicketPerformer           Ticket[]             @relation(name: "performer")
+
+  @@map("users")
+}
+
+model Code {
+  id          Int     @id @default(autoincrement())
+  creator     User?   @relation(name: "creator", fields: [creatorId], references: [id], onDelete: Cascade)
+  code        String
+  creatorId   String?
+  amountCoins Int     @map("amount_coins")
+  subscribers User[]  @relation(name: "subscribers")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("codes")
+}
+
+model Currency {
+  id        Int      @id @default(autoincrement())
+  value     String
+  key       String
+  createdAt DateTime @default(now()) @map("created_at")
+  User      User[]
+
+  @@map("currencies")
+}
+
+model Wallet {
+  id      String @id @default(uuid())
+  address String @unique
+  wif     String
+  balance Float  @default(0)
+  user    User?
+
+  @@map("wallets")
+}
+
+model ContractRequisite {
+  id              Int           @id @default(autoincrement())
+  paymentMethod   PaymentMethod @relation(fields: [paymentMethodId], references: [id])
+  paymentMethodId Int           @map("payment_method_id")
+  paymentData     String?       @map("payment_data")
+  currency        String
+  Contract        Contract?
+
+  @@map("contract_requisite")
+}
+
+model Requisite {
+  id                    Int           @id @default(autoincrement())
+  paymentMethod         PaymentMethod @relation(fields: [paymentMethodId], references: [id])
+  paymentMethodId       Int           @map("payment_method_id")
+  phoneOrbankCardNumber String
+  currency              String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  @@map("requisites")
+}
+
+model PaymentMethod {
+  id                Int                 @id @default(autoincrement())
+  name              String
+  code              String
+  Contract          Contract[]
+  Requisite         Requisite[]
+  ContractRequisite ContractRequisite[]
+
+  @@map("payment_method")
+}
+
+model Contract {
+  id                  Int                   @id @default(autoincrement())
+  author              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount              Float
+  type                String?
+  price               Float
+  viewMode            Boolean               @default(false) @map("view_mode")
+  maxPrice            Float?                @map("max_price")
+  code                String                @default(cuid())
+  userId              String                @map("user_id")
+  paymentMethod       PaymentMethod?        @relation(fields: [paymentMethodId], references: [id])
+  requisite           String                @default("")
+  paymentMethodId     Int?                  @map("payment_method_id")
+  currency            String?
+  comment             String?
+  ContractTransaction ContractTransaction[]
+  ContractRequisite   ContractRequisite?    @relation(fields: [contractRequisiteId], references: [id])
+  contractRequisiteId Int?                  @unique
+
+  @@map("contract")
+}
+
+model AddressBook {
+  id      Int    @id @default(autoincrement())
+  name    String
+  address String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId  String @map("user_id")
+
+  @@map("address_book")
+}
+
+model ContractTransaction {
+  id             String   @id @default(uuid())
+  code           String   @default(cuid())
+  seller         User?    @relation(name: "seller", fields: [sellerId], references: [id])
+  sellerId       String?  @map("seller_id")
+  buyer          User?    @relation(name: "buyer", fields: [buyerId], references: [id])
+  buyerId        String?  @unique @map("buyer_id")
+  amount         Float
+  purchaseAmount Float    @default(0) @map("purchase_amount")
+  isAccepted     Boolean  @default(true) @map("is_accepted")
+  contract       Contract @relation(fields: [contractId], references: [id])
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  contractId Int      @map("contract_id")
+  Dispute    Dispute?
+  disputeId  Int?     @unique
+
+  @@map("contract_transaction")
+}
+
+model Config {
+  id                 Int     @id @default(autoincrement())
+  botName            String  @map("bot_name")
+  feeForTransaction  Int?    @map("fee_for_transaction")
+  adminWalletAddress String? @map("admin_wallet_address")
+  adminWalletWIF     String? @map("admin_wallet_wif")
+
+  @@map("config")
+}
+
+model Dispute {
+  id                    Int                  @id @default(autoincrement())
+  contractTransaction   ContractTransaction? @relation(fields: [contractTransactionId], references: [id])
+  contractTransactionId String?              @unique @map("contract_transaction_id")
+
+  @@map("dispute")
+}
+
+model Ticket {
+  id            Int            @id @default(autoincrement())
+  initiator     User           @relation(fields: [initiatorId], references: [id], name: "initiator")
+  initiatorId   String         @map("initiator_id")
+  performer     User?          @relation(fields: [performerId], references: [id], name: "performer")
+  performerId   String?        @map("performer_id")
+  status        TicketStatuses @default(PENDING)
+  ticketMessage String         @map("ticket_message")
+  reason        String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("tickets")
+}
+
+enum TicketStatuses {
+  PENDING
+  REVIEW
+  SUCCESS
+  DECLINE
+}
