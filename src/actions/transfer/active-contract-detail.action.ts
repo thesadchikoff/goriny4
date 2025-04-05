@@ -14,7 +14,15 @@ export const activeContractDetailAction = async (ctx: BotContext) => {
         include: {
             buyer: true,
             seller: true,
-            contract: true
+            contract: {
+                include: {
+                    ContractRequisite: {
+                        include: {
+                            paymentMethod: true
+                        }
+                    }
+                }
+            }
         }
     })
     if (!contractTransaction) return ctx.reply('Контракт не найден', {
@@ -31,10 +39,16 @@ export const activeContractDetailAction = async (ctx: BotContext) => {
     );
     const sellerUrl = generateUrlForUser(contractTransaction.seller!.login!)
     const buyerUrl = generateUrlForUser(contractTransaction.buyer!.login!)
-    return ctx.editMessageText(`<b>Контракт #${contractTransaction.id}</b>\n\n<b>Покупает: </b><a href="${buyerUrl}">${contractTransaction.buyer!.login}</a>\n<b>Продает: </b><a href="${sellerUrl}">${contractTransaction.seller!.login}</a>\n<b>Сумма:</b> ${amountToBtc.toFixed(6)} BTC\n\n<b>Статус:</b> Ожидает оплаты`, {
+    return ctx.editMessageText(`<b>Контракт #${contractTransaction.id}</b>\n\n<b>Покупает: </b><a href="${buyerUrl}">${contractTransaction.buyer!.login}</a>\n<b>Продает: </b><a href="${sellerUrl}">${contractTransaction.seller!.login}</a>\n<b>Сумма:</b> ${amountToBtc.toFixed(6)} BTC\n\n<b>Статус:</b> Ожидает оплаты\n\n<b>Способ оплаты:</b> ${contractTransaction.contract.ContractRequisite?.paymentMethod.name || 'Не указан'}\n<b>Реквизиты:</b> ${contractTransaction.contract.ContractRequisite?.paymentData || 'Не указаны'}`, {
         parse_mode: 'HTML',
         reply_markup: {
             inline_keyboard: [
+                [
+                    {
+                        callback_data: `cancel-transaction-${contractTransaction.id}`,
+                        text: '❌ Отменить сделку'
+                    }
+                ],
                 previousButton(QueryTriggers.ACTIVE_CONTRACTS())
             ]
         }
