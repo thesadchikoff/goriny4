@@ -225,7 +225,8 @@ export const callbackHandler = () => {
 					}
 				case 'admin-panel':
 					return query.editMessageText(
-						`🛡️ <b>Панель администратора</b>\n\nЗдесь вы можете изменить конфигурацию бота.`,
+						`👨‍💻 <b>Панель администратора</b>\n\n` +
+						`Через эту панель вы можете управлять важными параметрами системы и выполнять администраторские функции.`,
 						{
 							parse_mode: 'HTML',
 							reply_markup: {
@@ -236,6 +237,82 @@ export const callbackHandler = () => {
 							},
 						}
 					)
+				case 'admin-users':
+					try {
+						const usersPerPage = 5;
+						const page = 1;
+						const totalUsers = await prisma.user.count();
+						const totalPages = Math.ceil(totalUsers / usersPerPage);
+						
+						const users = await prisma.user.findMany({
+							skip: (page - 1) * usersPerPage,
+							take: usersPerPage,
+							orderBy: { createdAt: 'desc' },
+							include: { wallet: true }
+						});
+						
+						// Формируем кнопки пользователей
+						const userButtons = users.map(user => [
+							{
+								callback_data: `admin-user-details-${user.id}`,
+								text: `${user.isBlocked ? '🔒 ' : ''}${user.username || 'Нет имени'} ${user.isAdmin ? '👑' : ''} | ${user.wallet?.balance || 0} BTC`
+							}
+						]);
+						
+						// Добавляем кнопки пагинации, если страниц больше одной
+						if (totalPages > 1) {
+							const paginationButtons = [];
+							
+							// Кнопка "Назад" (неактивна на первой странице)
+							if (page > 1) {
+								paginationButtons.push({
+									callback_data: `admin-users-page-${page - 1}`,
+									text: '◀️ Назад'
+								});
+							}
+							
+							// Номер текущей страницы и общее количество
+							paginationButtons.push({
+								callback_data: 'none',
+								text: `${page} из ${totalPages}`
+							});
+							
+							// Кнопка "Вперед" (неактивна на последней странице)
+							if (page < totalPages) {
+								paginationButtons.push({
+									callback_data: `admin-users-page-${page + 1}`,
+									text: 'Вперед ▶️'
+								});
+							}
+							
+							userButtons.push(paginationButtons);
+						}
+						
+						// Кнопка возврата в админ-панель
+						userButtons.push(previousButton('admin-panel'));
+						
+						return query.editMessageText(
+							`👥 <b>Управление пользователями</b>\n\n` +
+							`Всего пользователей: <b>${totalUsers}</b>\n\n` +
+							`Выберите пользователя для просмотра информации:`,
+							{
+								parse_mode: 'HTML',
+								reply_markup: {
+									inline_keyboard: userButtons
+								}
+							}
+						);
+					} catch (error) {
+						console.error('[ADMIN_USERS] Error:', error);
+						return query.editMessageText(
+							'❌ Произошла ошибка при получении списка пользователей',
+							{
+								reply_markup: {
+									inline_keyboard: [previousButton('admin-panel')]
+								}
+							}
+						);
+					}
 				case 'change_fee':
 					return query.scene.enter('change-fee')
 				case 'bitcoin-add':
@@ -436,6 +513,12 @@ export const callbackHandler = () => {
 			const matchCancelTransaction = data.match(/^cancel-transaction-(.+)$/)
 			const matchContactAddress = data.match(/^address-contact-(\d+)$/)
 			const matchDeleteContactAddress = data.match(/^delete-contact-(\d+)$/)
+			const matchUserDetails = data.match(/^admin-user-details-(\d+)$/)
+			const matchUserBlock = data.match(/^admin-user-block-(\d+)$/)
+			const matchUserUnblock = data.match(/^admin-user-unblock-(\d+)$/)
+			const matchUsersPagination = data.match(/^admin-users-page-(\d+)$/)
+			const matchUserFreezeTransfer = data.match(/^admin-user-freeze-transfer-(\d+)$/)
+			const matchUserUnfreezeTransfer = data.match(/^admin-user-unfreeze-transfer-(\d+)$/)
 
 			if (matchDeleteContactAddress) {
 				const itemId = Number(matchDeleteContactAddress[1])
@@ -455,7 +538,6 @@ export const callbackHandler = () => {
 			}
 
 			if (matchContactAddress) {
-				matchContactAddress
 				const itemId = Number(matchContactAddress[1])
 				const contact = await prisma.addressBook.findFirst({
 					where: {
@@ -481,6 +563,646 @@ export const callbackHandler = () => {
 				)
 			}
 
+			// Обработка детальной информации о пользователе
+			if (matchUserDetails) {
+				try {
+					console.log('[ADMIN_USER_DETAILS] User ID:', matchUserDetails[1]);
+					const userId = matchUserDetails[1];
+					
+					// Получаем пользователя
+					const user = await prisma.user.findFirst({
+						where: { id: userId },
+						include: { 
+							wallet: true 
+						}
+					});
+					
+					if (!user) {
+						return query.editMessageText(
+							'❌ Пользователь не найден',
+							{
+								reply_markup: {
+									inline_keyboard: [previousButton('admin-users')]
+								}
+							}
+						);
+					}
+					
+					// Получаем информацию о замороженных средствах
+					const frozenInfo = await frozenBalanceService.checkAvailableBalance(
+						userId,
+						0 // 0, так как нам не нужно проверять доступность для определенной суммы
+					);
+					
+					// Считаем количество контрактов
+					const contractCount = await prisma.contract.count({
+						where: { userId: userId }
+					});
+					
+					// Считаем количество транзакций (как покупатель + как продавец)
+					const buyerTransactionCount = await prisma.contractTransaction.count({
+						where: { buyerId: userId }
+					});
+					const sellerTransactionCount = await prisma.contractTransaction.count({
+						where: { sellerId: userId }
+					});
+					const transactionCount = buyerTransactionCount + sellerTransactionCount;
+					
+					// Форматируем даты
+					const registeredAt = new Date(user.createdAt).toLocaleString('ru-RU');
+					const updatedAt = new Date(user.createdAt).toLocaleString('ru-RU'); // Используем createdAt вместо updatedAt
+					
+					// Создаем кнопки действий для пользователя
+					const actionButtons = [];
+					
+					// Кнопка блокировки/разблокировки пользователя
+					actionButtons.push([{
+						callback_data: user.isBlocked 
+							? `admin-user-unblock-${user.id}` 
+							: `admin-user-block-${user.id}`,
+						text: user.isBlocked 
+							? '🔓 Разблокировать пользователя' 
+							: '🔒 Заблокировать пользователя'
+					}]);
+					
+					// Кнопка замораживания/размораживания переводов
+					actionButtons.push([{
+						callback_data: user.isFreezeTransfer
+							? `admin-user-unfreeze-transfer-${user.id}`
+							: `admin-user-freeze-transfer-${user.id}`,
+						text: user.isFreezeTransfer
+							? '💲 Разрешить переводы'
+							: '❄️ Заморозить переводы'
+					}]);
+					
+					// Кнопка назад к списку пользователей
+					actionButtons.push(previousButton('admin-users'));
+					
+					return query.editMessageText(
+						`👤 <b>Информация о пользователе</b>\n\n` +
+						`ID: <code>${user.id}</code>\n` +
+						`Имя пользователя: <b>${user.username || 'Не указано'}</b>\n` +
+						`Логин: <b>${user.login || 'Не указан'}</b>\n` +
+						`Статус: ${user.isAdmin ? '👑 Администратор' : '👤 Пользователь'}${user.isBlocked ? ' 🔒 Заблокирован' : ''}\n` +
+						`Переводы: ${user.isFreezeTransfer ? '❄️ Заморожены' : '✅ Разрешены'}\n\n` +
+						`💰 <b>Баланс</b>\n` +
+						`• Общий баланс: <b>${frozenInfo.totalBalance.toFixed(8)} BTC</b>\n` +
+						`• Доступный баланс: <b>${frozenInfo.availableBalance.toFixed(8)} BTC</b>\n` +
+						`• Замороженный баланс: <b>${frozenInfo.frozenBalance.toFixed(8)} BTC</b>\n\n` +
+						`📊 <b>Статистика</b>\n` +
+						`• Количество сделок: <b>${transactionCount}</b>\n` +
+						`• Количество объявлений: <b>${contractCount}</b>\n\n` +
+						`⏰ <b>Время</b>\n` +
+						`• Дата регистрации: <b>${registeredAt}</b>\n` +
+						`• Последнее обновление: <b>${updatedAt}</b>`,
+						{
+							parse_mode: 'HTML',
+							reply_markup: {
+								inline_keyboard: actionButtons
+							}
+						}
+					);
+				} catch (error) {
+					console.error('[ADMIN_USER_DETAILS] Error:', error);
+					return query.editMessageText(
+						'❌ Произошла ошибка при получении информации о пользователе',
+						{
+							reply_markup: {
+								inline_keyboard: [previousButton('admin-users')]
+							}
+						}
+					);
+				}
+			}
+			
+			// Обработка блокировки пользователя
+			if (matchUserBlock) {
+				try {
+					const userId = matchUserBlock[1];
+					
+					// Блокируем пользователя
+					await prisma.user.update({
+						where: { id: userId },
+						data: { isBlocked: true }
+					});
+					
+					// Отправляем уведомление об успешной блокировке
+					await query.answerCbQuery('✅ Пользователь заблокирован', { show_alert: true });
+					
+					// Получаем обновленную информацию о пользователе
+					const user = await prisma.user.findFirst({
+						where: { id: userId },
+						include: { wallet: true }
+					});
+					
+					if (!user) {
+						return query.editMessageText(
+							'❌ Пользователь не найден',
+							{
+								reply_markup: {
+									inline_keyboard: [previousButton('admin-users')]
+								}
+							}
+						);
+					}
+					
+					// Получаем информацию о замороженных средствах
+					const frozenInfo = await frozenBalanceService.checkAvailableBalance(
+						userId,
+						0 // 0, так как нам не нужно проверять доступность для определенной суммы
+					);
+					
+					// Считаем количество контрактов
+					const contractCount = await prisma.contract.count({
+						where: { userId: userId }
+					});
+					
+					// Считаем количество транзакций (как покупатель + как продавец)
+					const buyerTransactionCount = await prisma.contractTransaction.count({
+						where: { buyerId: userId }
+					});
+					const sellerTransactionCount = await prisma.contractTransaction.count({
+						where: { sellerId: userId }
+					});
+					const transactionCount = buyerTransactionCount + sellerTransactionCount;
+					
+					// Форматируем даты
+					const registeredAt = new Date(user.createdAt).toLocaleString('ru-RU');
+					const updatedAt = new Date(user.createdAt).toLocaleString('ru-RU'); // Используем createdAt вместо updatedAt
+					
+					// Создаем кнопки действий для пользователя
+					const actionButtons = [];
+					
+					// Кнопка разблокировки пользователя
+					actionButtons.push([{
+						callback_data: `admin-user-unblock-${user.id}`,
+						text: '🔓 Разблокировать пользователя'
+					}]);
+					
+					// Кнопка замораживания/размораживания переводов
+					actionButtons.push([{
+						callback_data: user.isFreezeTransfer
+							? `admin-user-unfreeze-transfer-${user.id}`
+							: `admin-user-freeze-transfer-${user.id}`,
+						text: user.isFreezeTransfer
+							? '💲 Разрешить переводы'
+							: '❄️ Заморозить переводы'
+					}]);
+					
+					// Кнопка назад к списку пользователей
+					actionButtons.push(previousButton('admin-users'));
+					
+					return query.editMessageText(
+						`👤 <b>Информация о пользователе</b>\n\n` +
+						`ID: <code>${user.id}</code>\n` +
+						`Имя пользователя: <b>${user.username || 'Не указано'}</b>\n` +
+						`Логин: <b>${user.login || 'Не указан'}</b>\n` +
+						`Статус: ${user.isAdmin ? '👑 Администратор' : '👤 Пользователь'} 🔒 Заблокирован\n` +
+						`Переводы: ${user.isFreezeTransfer ? '❄️ Заморожены' : '✅ Разрешены'}\n\n` +
+						`💰 <b>Баланс</b>\n` +
+						`• Общий баланс: <b>${frozenInfo.totalBalance.toFixed(8)} BTC</b>\n` +
+						`• Доступный баланс: <b>${frozenInfo.availableBalance.toFixed(8)} BTC</b>\n` +
+						`• Замороженный баланс: <b>${frozenInfo.frozenBalance.toFixed(8)} BTC</b>\n\n` +
+						`📊 <b>Статистика</b>\n` +
+						`• Количество сделок: <b>${transactionCount}</b>\n` +
+						`• Количество объявлений: <b>${contractCount}</b>\n\n` +
+						`⏰ <b>Время</b>\n` +
+						`• Дата регистрации: <b>${registeredAt}</b>\n` +
+						`• Последнее обновление: <b>${updatedAt}</b>`,
+						{
+							parse_mode: 'HTML',
+							reply_markup: {
+								inline_keyboard: actionButtons
+							}
+						}
+					);
+				} catch (error) {
+					console.error('[ADMIN_USER_BLOCK] Error:', error);
+					return query.answerCbQuery('❌ Ошибка при блокировке пользователя', { show_alert: true });
+				}
+			}
+			
+			// Обработка разблокировки пользователя
+			if (matchUserUnblock) {
+				try {
+					const userId = matchUserUnblock[1];
+					
+					// Разблокируем пользователя
+					await prisma.user.update({
+						where: { id: userId },
+						data: { isBlocked: false }
+					});
+					
+					// Отправляем уведомление об успешной разблокировке
+					await query.answerCbQuery('✅ Пользователь разблокирован', { show_alert: true });
+					
+					// Получаем обновленную информацию о пользователе
+					const user = await prisma.user.findFirst({
+						where: { id: userId },
+						include: { wallet: true }
+					});
+					
+					if (!user) {
+						return query.editMessageText(
+							'❌ Пользователь не найден',
+							{
+								reply_markup: {
+									inline_keyboard: [previousButton('admin-users')]
+								}
+							}
+						);
+					}
+					
+					// Получаем информацию о замороженных средствах
+					const frozenInfo = await frozenBalanceService.checkAvailableBalance(
+						userId,
+						0 // 0, так как нам не нужно проверять доступность для определенной суммы
+					);
+					
+					// Считаем количество контрактов
+					const contractCount = await prisma.contract.count({
+						where: { userId: userId }
+					});
+					
+					// Считаем количество транзакций (как покупатель + как продавец)
+					const buyerTransactionCount = await prisma.contractTransaction.count({
+						where: { buyerId: userId }
+					});
+					const sellerTransactionCount = await prisma.contractTransaction.count({
+						where: { sellerId: userId }
+					});
+					const transactionCount = buyerTransactionCount + sellerTransactionCount;
+					
+					// Форматируем даты
+					const registeredAt = new Date(user.createdAt).toLocaleString('ru-RU');
+					const updatedAt = new Date(user.createdAt).toLocaleString('ru-RU'); // Используем createdAt вместо updatedAt
+					
+					// Создаем кнопки действий для пользователя
+					const actionButtons = [];
+					
+					// Кнопка блокировки пользователя
+					actionButtons.push([{
+						callback_data: `admin-user-block-${user.id}`,
+						text: '🔒 Заблокировать пользователя'
+					}]);
+					
+					// Кнопка замораживания/размораживания переводов
+					actionButtons.push([{
+						callback_data: user.isFreezeTransfer
+							? `admin-user-unfreeze-transfer-${user.id}`
+							: `admin-user-freeze-transfer-${user.id}`,
+						text: user.isFreezeTransfer
+							? '💲 Разрешить переводы'
+							: '❄️ Заморозить переводы'
+					}]);
+					
+					// Кнопка назад к списку пользователей
+					actionButtons.push(previousButton('admin-users'));
+					
+					return query.editMessageText(
+						`👤 <b>Информация о пользователе</b>\n\n` +
+						`ID: <code>${user.id}</code>\n` +
+						`Имя пользователя: <b>${user.username || 'Не указано'}</b>\n` +
+						`Логин: <b>${user.login || 'Не указан'}</b>\n` +
+						`Статус: ${user.isAdmin ? '👑 Администратор' : '👤 Пользователь'}\n` +
+						`Переводы: ${user.isFreezeTransfer ? '❄️ Заморожены' : '✅ Разрешены'}\n\n` +
+						`💰 <b>Баланс</b>\n` +
+						`• Общий баланс: <b>${frozenInfo.totalBalance.toFixed(8)} BTC</b>\n` +
+						`• Доступный баланс: <b>${frozenInfo.availableBalance.toFixed(8)} BTC</b>\n` +
+						`• Замороженный баланс: <b>${frozenInfo.frozenBalance.toFixed(8)} BTC</b>\n\n` +
+						`📊 <b>Статистика</b>\n` +
+						`• Количество сделок: <b>${transactionCount}</b>\n` +
+						`• Количество объявлений: <b>${contractCount}</b>\n\n` +
+						`⏰ <b>Время</b>\n` +
+						`• Дата регистрации: <b>${registeredAt}</b>\n` +
+						`• Последнее обновление: <b>${updatedAt}</b>`,
+						{
+							parse_mode: 'HTML',
+							reply_markup: {
+								inline_keyboard: actionButtons
+							}
+						}
+					);
+				} catch (error) {
+					console.error('[ADMIN_USER_UNBLOCK] Error:', error);
+					return query.answerCbQuery('❌ Ошибка при разблокировке пользователя', { show_alert: true });
+				}
+			}
+			
+			// Обработка замораживания переводов пользователя
+			if (matchUserFreezeTransfer) {
+				try {
+					const userId = matchUserFreezeTransfer[1];
+					
+					// Замораживаем переводы пользователя
+					await prisma.user.update({
+						where: { id: userId },
+						data: { isFreezeTransfer: true }
+					});
+					
+					// Отправляем уведомление об успешном замораживании администратору
+					await query.answerCbQuery('✅ Переводы пользователя заморожены', { show_alert: true });
+					
+					// Отправляем уведомление пользователю
+					await query.telegram.sendMessage(
+						userId,
+						`❄️ <b>Ваши переводы заморожены</b>\n\nУважаемый пользователь, администрация ${config.shopName} временно заморозила возможность вывода BTC на внешние кошельки.\n\nЭто означает, что вы не сможете выводить криптовалюту за пределы платформы до разморозки переводов.\n\nОбратите внимание:\n• Внутренние операции в системе по-прежнему доступны\n• Покупка и продажа BTC внутри системы работает в обычном режиме\n• Ваши средства полностью сохранены\n\nПо всем вопросам обращайтесь в службу поддержки.`,
+						{
+							parse_mode: 'HTML',
+							reply_markup: {
+								inline_keyboard: [
+									[{ text: '🛎 Связаться с поддержкой', callback_data: 'support' }]
+								]
+							}
+						}
+					);
+					
+					// Получаем обновленную информацию о пользователе
+					const user = await prisma.user.findFirst({
+						where: { id: userId },
+						include: { wallet: true }
+					});
+					
+					if (!user) {
+						return query.editMessageText(
+							'❌ Пользователь не найден',
+							{
+								reply_markup: {
+									inline_keyboard: [previousButton('admin-users')]
+								}
+							}
+						);
+					}
+					
+					// Получаем информацию о замороженных средствах
+					const frozenInfo = await frozenBalanceService.checkAvailableBalance(
+						userId,
+						0 // 0, так как нам не нужно проверять доступность для определенной суммы
+					);
+					
+					// Считаем количество контрактов
+					const contractCount = await prisma.contract.count({
+						where: { userId: userId }
+					});
+					
+					// Считаем количество транзакций (как покупатель + как продавец)
+					const buyerTransactionCount = await prisma.contractTransaction.count({
+						where: { buyerId: userId }
+					});
+					const sellerTransactionCount = await prisma.contractTransaction.count({
+						where: { sellerId: userId }
+					});
+					const transactionCount = buyerTransactionCount + sellerTransactionCount;
+					
+					// Форматируем даты
+					const registeredAt = new Date(user.createdAt).toLocaleString('ru-RU');
+					const updatedAt = new Date(user.createdAt).toLocaleString('ru-RU'); // Используем createdAt вместо updatedAt
+					
+					// Создаем кнопки действий для пользователя
+					const actionButtons = [];
+					
+					// Кнопка блокировки/разблокировки пользователя
+					actionButtons.push([{
+						callback_data: user.isBlocked 
+							? `admin-user-unblock-${user.id}` 
+							: `admin-user-block-${user.id}`,
+						text: user.isBlocked 
+							? '🔓 Разблокировать пользователя' 
+							: '🔒 Заблокировать пользователя'
+					}]);
+					
+					// Кнопка размораживания переводов
+					actionButtons.push([{
+						callback_data: `admin-user-unfreeze-transfer-${user.id}`,
+						text: '💲 Разрешить переводы'
+					}]);
+					
+					// Кнопка назад к списку пользователей
+					actionButtons.push(previousButton('admin-users'));
+					
+					return query.editMessageText(
+						`👤 <b>Информация о пользователе</b>\n\n` +
+						`ID: <code>${user.id}</code>\n` +
+						`Имя пользователя: <b>${user.username || 'Не указано'}</b>\n` +
+						`Логин: <b>${user.login || 'Не указан'}</b>\n` +
+						`Статус: ${user.isAdmin ? '👑 Администратор' : '👤 Пользователь'}${user.isBlocked ? ' 🔒 Заблокирован' : ''}\n` +
+						`Переводы: ❄️ Заморожены\n\n` +
+						`💰 <b>Баланс</b>\n` +
+						`• Общий баланс: <b>${frozenInfo.totalBalance.toFixed(8)} BTC</b>\n` +
+						`• Доступный баланс: <b>${frozenInfo.availableBalance.toFixed(8)} BTC</b>\n` +
+						`• Замороженный баланс: <b>${frozenInfo.frozenBalance.toFixed(8)} BTC</b>\n\n` +
+						`📊 <b>Статистика</b>\n` +
+						`• Количество сделок: <b>${transactionCount}</b>\n` +
+						`• Количество объявлений: <b>${contractCount}</b>\n\n` +
+						`⏰ <b>Время</b>\n` +
+						`• Дата регистрации: <b>${registeredAt}</b>\n` +
+						`• Последнее обновление: <b>${updatedAt}</b>`,
+						{
+							parse_mode: 'HTML',
+							reply_markup: {
+								inline_keyboard: actionButtons
+							}
+						}
+					);
+				} catch (error) {
+					console.error('[ADMIN_USER_FREEZE_TRANSFER] Error:', error);
+					return query.answerCbQuery('❌ Ошибка при замораживании переводов', { show_alert: true });
+				}
+			}
+			
+			// Обработка размораживания переводов пользователя
+			if (matchUserUnfreezeTransfer) {
+				try {
+					const userId = matchUserUnfreezeTransfer[1];
+					
+					// Размораживаем переводы пользователя
+					await prisma.user.update({
+						where: { id: userId },
+						data: { isFreezeTransfer: false }
+					});
+					
+					// Отправляем уведомление об успешном размораживании
+					await query.answerCbQuery('✅ Переводы пользователя разрешены', { show_alert: true });
+					
+					// Отправляем уведомление пользователю
+					await query.telegram.sendMessage(
+						userId,
+						`✅ <b>Ваши переводы разблокированы</b>\n\nУважаемый пользователь, администрация ${config.shopName} разблокировала возможность вывода BTC на внешние кошельки.\n\nТеперь вы снова можете пользоваться всеми функциями кошелька без ограничений:\n• Выводить BTC на внешние кошельки\n• Совершать переводы между пользователями\n• Покупать и продавать BTC внутри системы\n\nСпасибо за понимание и использование нашего сервиса!`,
+						{
+							parse_mode: 'HTML'
+						}
+					);
+					
+					// Получаем обновленную информацию о пользователе
+					const user = await prisma.user.findFirst({
+						where: { id: userId },
+						include: { wallet: true }
+					});
+					
+					if (!user) {
+						return query.editMessageText(
+							'❌ Пользователь не найден',
+							{
+								reply_markup: {
+									inline_keyboard: [previousButton('admin-users')]
+								}
+							}
+						);
+					}
+					
+					// Получаем информацию о замороженных средствах
+					const frozenInfo = await frozenBalanceService.checkAvailableBalance(
+						userId,
+						0 // 0, так как нам не нужно проверять доступность для определенной суммы
+					);
+					
+					// Считаем количество контрактов
+					const contractCount = await prisma.contract.count({
+						where: { userId: userId }
+					});
+					
+					// Считаем количество транзакций (как покупатель + как продавец)
+					const buyerTransactionCount = await prisma.contractTransaction.count({
+						where: { buyerId: userId }
+					});
+					const sellerTransactionCount = await prisma.contractTransaction.count({
+						where: { sellerId: userId }
+					});
+					const transactionCount = buyerTransactionCount + sellerTransactionCount;
+					
+					// Форматируем даты
+					const registeredAt = new Date(user.createdAt).toLocaleString('ru-RU');
+					const updatedAt = new Date(user.updatedAt).toLocaleString('ru-RU');
+					
+					// Создаем кнопки действий для пользователя
+					const actionButtons = [];
+					
+					// Кнопка блокировки/разблокировки пользователя
+					actionButtons.push([{
+						callback_data: user.isBlocked 
+							? `admin-user-unblock-${user.id}` 
+							: `admin-user-block-${user.id}`,
+						text: user.isBlocked 
+							? '🔓 Разблокировать пользователя' 
+							: '🔒 Заблокировать пользователя'
+					}]);
+					
+					// Кнопка замораживания переводов
+					actionButtons.push([{
+						callback_data: `admin-user-freeze-transfer-${user.id}`,
+						text: '❄️ Заморозить переводы'
+					}]);
+					
+					// Кнопка назад к списку пользователей
+					actionButtons.push(previousButton('admin-users'));
+					
+					return query.editMessageText(
+						`👤 <b>Информация о пользователе</b>\n\n` +
+						`ID: <code>${user.id}</code>\n` +
+						`Имя пользователя: <b>${user.username || 'Не указано'}</b>\n` +
+						`Логин: <b>${user.login || 'Не указан'}</b>\n` +
+						`Статус: ${user.isAdmin ? '👑 Администратор' : '👤 Пользователь'}${user.isBlocked ? ' 🔒 Заблокирован' : ''}\n` +
+						`Переводы: ✅ Разрешены\n\n` +
+						`💰 <b>Баланс</b>\n` +
+						`• Общий баланс: <b>${frozenInfo.totalBalance.toFixed(8)} BTC</b>\n` +
+						`• Доступный баланс: <b>${frozenInfo.availableBalance.toFixed(8)} BTC</b>\n` +
+						`• Замороженный баланс: <b>${frozenInfo.frozenBalance.toFixed(8)} BTC</b>\n\n` +
+						`📊 <b>Статистика</b>\n` +
+						`• Количество сделок: <b>${transactionCount}</b>\n` +
+						`• Количество объявлений: <b>${contractCount}</b>\n\n` +
+						`⏰ <b>Время</b>\n` +
+						`• Дата регистрации: <b>${registeredAt}</b>\n` +
+						`• Последнее обновление: <b>${updatedAt}</b>`,
+						{
+							parse_mode: 'HTML',
+							reply_markup: {
+								inline_keyboard: actionButtons
+							}
+						}
+					);
+				} catch (error) {
+					console.error('[ADMIN_USER_UNFREEZE_TRANSFER] Error:', error);
+					return query.answerCbQuery('❌ Ошибка при разрешении переводов', { show_alert: true });
+				}
+			}
+			
+			// Обработка пагинации списка пользователей
+			if (matchUsersPagination) {
+				try {
+					const page = parseInt(matchUsersPagination[1]);
+					const usersPerPage = 5;
+					const totalUsers = await prisma.user.count();
+					const totalPages = Math.ceil(totalUsers / usersPerPage);
+					
+					// Проверяем, что страница находится в допустимом диапазоне
+					if (page < 1 || page > totalPages) {
+						return query.answerCbQuery('❌ Неверный номер страницы', { show_alert: true });
+					}
+					
+					// Получаем пользователей для текущей страницы
+					const users = await prisma.user.findMany({
+						skip: (page - 1) * usersPerPage,
+						take: usersPerPage,
+						orderBy: { createdAt: 'desc' },
+						include: { wallet: true }
+					});
+					
+					// Формируем кнопки пользователей
+					const userButtons = users.map(user => [
+						{
+							callback_data: `admin-user-details-${user.id}`,
+							text: `${user.isBlocked ? '🔒 ' : ''}${user.username || 'Нет имени'} ${user.isAdmin ? '👑' : ''} | ${user.wallet?.balance || 0} BTC`
+						}
+					]);
+					
+					// Добавляем кнопки пагинации
+					const paginationButtons = [];
+					
+					// Кнопка "Назад" (неактивна на первой странице)
+					if (page > 1) {
+						paginationButtons.push({
+							callback_data: `admin-users-page-${page - 1}`,
+							text: '◀️ Назад'
+						});
+					}
+					
+					// Номер текущей страницы и общее количество
+					paginationButtons.push({
+						callback_data: 'none',
+						text: `${page} из ${totalPages}`
+					});
+					
+					// Кнопка "Вперед" (неактивна на последней странице)
+					if (page < totalPages) {
+						paginationButtons.push({
+							callback_data: `admin-users-page-${page + 1}`,
+							text: 'Вперед ▶️'
+						});
+					}
+					
+					userButtons.push(paginationButtons);
+					
+					// Кнопка возврата в админ-панель
+					userButtons.push(previousButton('admin-panel'));
+					
+					return query.editMessageText(
+						`👥 <b>Управление пользователями</b>\n\n` +
+						`Всего пользователей: <b>${totalUsers}</b>\n` +
+						`Страница <b>${page}</b> из <b>${totalPages}</b>\n\n` +
+						`Выберите пользователя для просмотра информации:`,
+						{
+							parse_mode: 'HTML',
+							reply_markup: {
+								inline_keyboard: userButtons
+							}
+						}
+					);
+				} catch (error) {
+					console.error('[ADMIN_USERS_PAGINATION] Error:', error);
+					return query.answerCbQuery('❌ Ошибка при получении списка пользователей', { show_alert: true });
+				}
+			}
+			
 			if (matchBuyContract) {
 				const itemId = Number(matchBuyContract[1])
 				
@@ -712,6 +1434,44 @@ export const callbackHandler = () => {
 				return query.scene.enter('send_message', {
 					id: itemId,
 				})
+			}
+			
+			// Обработка ответа на тикет от пользователя
+			const matchReplyTicket = data.match(/^reply-ticket-(\d+)$/)
+			if (matchReplyTicket) {
+				const ticketId = Number(matchReplyTicket[1])
+				
+				// Проверяем существование тикета
+				const ticket = await prisma.ticket.findFirst({
+					where: {
+						id: ticketId,
+						initiator: {
+							id: query.from!.id.toString()
+						},
+						status: 'REVIEW'
+					},
+					include: {
+						initiator: true,
+						performer: true
+					}
+				})
+				
+				if (!ticket) {
+					return query.answerCbQuery(
+						'Вы не можете ответить на этот тикет. Возможно, он уже закрыт.',
+						{ show_alert: true }
+					)
+				}
+				
+				// Сохраняем ID тикета в сессии
+				await query.answerCbQuery()
+				// @ts-ignore
+				query.session.ticketReply = {
+					ticketId: ticketId
+				}
+				
+				// Запускаем сцену ответа пользователя
+				return query.scene.enter('reply-to-support')
 			}
 			if (matchSellContract) {
 				const itemId = Number(matchSellContract[1])

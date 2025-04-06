@@ -16,5 +16,9 @@ export const adminInlineKeyboards: InlineKeyboardButton[][] = [
 			callback_data: 'admin-address-change',
 			text: '💳 Root кошелек',
 		},
+		{
+			callback_data: 'admin-users',
+			text: '👥 Пользователи',
+		},
 	],
 ]

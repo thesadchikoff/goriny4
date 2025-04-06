@@ -7,8 +7,13 @@ import {
 } from '@/actions/transfer'
 import {checkBalance, contactsNoteAction, replenishAction, transferBtcAction, walletAction,} from '@/actions/wallet'
 import {
+	answerTicketAction,
+	backToTicketAction,
+	declineTicketAction,
 	fullSupportTicketAction,
 	pinnedTicketAction,
+	replyTicketAction,
+	successTicketAction,
 	supportAction,
 	supportPanelAction,
 	supportTicketsAction
@@ -34,5 +39,10 @@ export {
 	coinsWithdrawalAction,
 	activeContractsAction,
 	activeContractDetailAction,
-	serviceAction
+	serviceAction,
+	answerTicketAction,
+	replyTicketAction,
+	successTicketAction,
+	declineTicketAction,
+	backToTicketAction
 }

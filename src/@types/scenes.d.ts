@@ -12,6 +12,13 @@ export interface ScenesData extends WizardSessionData {
 	currentCurrency: string
 	pricePerCoin: number
 	currentRequisite: any
+	support?: {
+		message?: string
+	}
+	ticketId?: number
+	ticketReply?: {
+		ticketId: number
+	}
 }
 
 export interface AddContractSession extends WizardSessionData {
@@ -25,6 +32,9 @@ export interface AddContractSession extends WizardSessionData {
 	currentCurrency: string
 	pricePerCoin: number
 	currentRequisite: any
+	ticketReply?: {
+		ticketId: number
+	}
 }
 
 export interface AddContractSceneSession {
@@ -35,9 +45,7 @@ export interface AddContractSceneSession {
 export interface BotContext extends Scenes.WizardContext {
 	match: RegExpExecArray | null
 	session: ScenesData | AddContractSession
-	scene: {
-		session: AddContractSceneSession
-	}
+	scene: Scenes.SceneContextScene<BotContext, AddContractSceneSession>
 }
 
 export interface AddContractContext extends Scenes.WizardContext {

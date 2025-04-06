@@ -193,11 +193,24 @@ model Ticket {
   status        TicketStatuses @default(PENDING)
   ticketMessage String         @map("ticket_message")
   reason        String?
+  messages      TicketMessage[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("tickets")
+}
+
+model TicketMessage {
+  id           Int      @id @default(autoincrement())
+  ticket       Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId     Int      @map("ticket_id")
+  senderId     String   @map("sender_id")
+  message      String
+  isFromSupport Boolean  @default(false) @map("is_from_support")
+  createdAt    DateTime @default(now()) @map("created_at")
+  
+  @@map("ticket_messages")
 }
 
 enum TicketStatuses {

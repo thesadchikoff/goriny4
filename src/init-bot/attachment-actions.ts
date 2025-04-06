@@ -1,14 +1,19 @@
 import {
 	activeContractDetailAction,
 	activeContractsAction,
+	answerTicketAction,
+	backToTicketAction,
 	checkBalance,
 	coinsWithdrawalAction,
 	contactsNoteAction,
+	declineTicketAction,
 	fullSupportTicketAction,
 	pinnedTicketAction,
 	replenishAction,
+	replyTicketAction,
 	rootWalletAction,
 	serviceAction,
+	successTicketAction,
 	supportAction,
 	supportPanelAction,
 	supportTicketsAction,
@@ -37,8 +42,16 @@ export const attachmentActions = () => {
 	bot.action('support-panel', supportPanelAction)
 	bot.action('support-tickets', supportTicketsAction)
 	bot.action('admin-address-change', rootWalletAction)
+	
+	// Регистрируем обработчики для тикетов
 	bot.action(QueryTriggers.FULL_SUPPORT_TICKET_REGEXP(), fullSupportTicketAction)
 	bot.action(QueryTriggers.PINNED_TICKET_REGEXP(), pinnedTicketAction)
+	bot.action(QueryTriggers.ANSWER_TICKET_REGEXP(), answerTicketAction)
+	bot.action(QueryTriggers.REPLY_TICKET_REGEXP(), replyTicketAction)
+	bot.action(QueryTriggers.SUCCESS_TICKET_REGEXP(), successTicketAction)
+	bot.action(QueryTriggers.DECLINE_TICKET_REGEXP(), declineTicketAction)
+	bot.action(QueryTriggers.BACK_TO_TICKET_REGEXP(), backToTicketAction)
+	
 	bot.action('coins-withdrawal', coinsWithdrawalAction)
 	bot.action(QueryTriggers.ACCEPT_FOR_BUYER_REGEXP(), disputeModule.accessForBuyer)
 	bot.action(QueryTriggers.ACCEPT_FOR_SELLER_REGEXP(), disputeModule.accessForSeller)

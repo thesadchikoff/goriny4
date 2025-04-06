@@ -10,6 +10,8 @@ import { ReplenishScene } from '@/scenes/replenish.scene'
 import { SelectCurrency } from '@/scenes/select-currency'
 import { SendMessage } from '@/scenes/send-message'
 import { SupportScene } from '@/scenes/support/support.scene'
+import { answerTicketScene } from '@/scenes/support/answer-ticket.scene'
+import { replyToSupportScene } from '@/scenes/support/reply-to-support.scene'
 import { Scenes } from 'telegraf'
 import { WizardContext } from 'telegraf/typings/scenes'
 
@@ -27,5 +29,7 @@ export const attachmentScenes = () => {
 		ChangeFee,
 		ChooseAdminAddress,
 		SupportScene,
+		answerTicketScene,
+		replyToSupportScene,
 	])
 }
