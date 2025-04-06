@@ -8,6 +8,7 @@ import userService from "@/db/user.service";
 import {paymentMethodsForContract} from "@/keyboards/inline-keyboards/payment-methods-for-contract.inline";
 import { CallbackQuery } from 'telegraf/typings/core/types/typegram';
 import { BotContext } from '@/@types/scenes';
+import frozenBalanceService from '@/service/frozen-balance.service';
 
 type AddContractContext = {
 	session: {
@@ -380,6 +381,56 @@ const createContract = async (ctx: AddContractContext) => {
 			ctx.session.currentRequisite = requisite
 		}
 		const {currentPaymentMethodId} = useCurrentPaymentMethod(ctx)
+		
+		// Получаем пользователя и его баланс
+		const user = await userService.fetchOneById({
+			id: ctx.from.id
+		})
+		
+		// Конвертируем максимальную сумму в BTC
+		const maxAmountInBTC = await currencyService.convertRubleToBTC(
+			ctx.scene.session.maxPrice,
+			ctx.session.currentCurrency,
+			"CURRENCY"
+		)
+		
+		// Конвертируем цену за 1 BTC
+		const pricePerCoin = ctx.session.pricePerCoin
+		
+		// Проверяем, достаточно ли у пользователя средств для продажи (только для контрактов типа "sell")
+		if (ctx.session.actionType === "sell") {
+			// Проверка баланса пользователя
+			if (!user?.wallet) {
+				return ctx.reply('❌ У вас нет кошелька. Пожалуйста, создайте кошелек.', {
+					reply_markup: {
+						inline_keyboard: [
+							[{ callback_data: 'main_menu', text: 'В главное меню' }]
+						]
+					}
+				});
+			}
+			
+			// Проверяем доступность средств с учетом уже замороженных через сервис
+			const balanceCheck = await frozenBalanceService.checkAvailableBalance(
+				user.id, 
+				maxAmountInBTC
+			);
+			
+			if (!balanceCheck.sufficient) {
+				return ctx.reply(`❌ <b>Недостаточно средств на балансе для создания объявления</b>\n\n💰 Ваш баланс: ${balanceCheck.totalBalance.toFixed(8)} BTC\n🧊 Уже заморожено в других объявлениях: ${balanceCheck.frozenBalance.toFixed(8)} BTC\n💵 Доступно: ${balanceCheck.availableBalance.toFixed(8)} BTC\n🔄 Требуется: ${maxAmountInBTC.toFixed(8)} BTC`, {
+					parse_mode: 'HTML',
+					reply_markup: {
+						inline_keyboard: [
+							[{ callback_data: 'main_menu', text: 'В главное меню' }]
+						]
+					}
+				});
+			}
+			
+			console.log(`[CONTRACT_CREATE] Freezing ${maxAmountInBTC} BTC for contract`);
+		}
+		
+		// Создаем реквизиты для контракта
 		initialContractRequisite = await prisma.contractRequisite.create({
 			data: {
 				paymentMethodId: callbackQuery?.data ? ctx.session.currentRequisite.paymentMethodId : Number(currentPaymentMethodId),
@@ -388,53 +439,24 @@ const createContract = async (ctx: AddContractContext) => {
 			}
 		})
 
-		// Конвертируем сумму в BTC
-		const amountInBTC = await currencyService.convertRubleToBTC(
-			ctx.scene.session.maxPrice,
-			ctx.session.currentCurrency,
-			"CURRENCY"
-		)
-
+		// Создаем контракт
 		const contract = await prisma.contract.create({
 			data: {
 				type: ctx.session.actionType,
 				price: ctx.scene.session.minPrice,
-				amount: amountInBTC,
+				amount: maxAmountInBTC,
 				userId: ctx.from.id.toString(),
 				currency: ctx.session.currentCurrency,
 				maxPrice: ctx.scene.session.maxPrice,
 				paymentMethodId: callbackQuery?.data ? ctx.session.currentRequisite.paymentMethodId : Number(currentPaymentMethodId),
-				contractRequisiteId: initialContractRequisite!.id
+				contractRequisiteId: initialContractRequisite!.id,
+				// На момент создания контракта средства становятся замороженными автоматически
+				// Когда контракт удаляется через API, средства возвращаются обратно
 			},
 			include: {
 				paymentMethod: true,
 			}
 		})
-
-		// Обновляем баланс пользователя
-		const user = await userService.fetchOneById({
-			id: ctx.from.id
-		})
-
-		if (user?.wallet) {
-			if (ctx.session.actionType === "sell") {
-				// При продаже уменьшаем баланс
-				await userService.changeUserBalance({
-					params: {
-						id: user.id
-					},
-					value: user.wallet.balance - amountInBTC
-				})
-			} else {
-				// При покупке увеличиваем баланс
-				await userService.changeUserBalance({
-					params: {
-						id: user.id
-					},
-					value: user.wallet.balance + amountInBTC
-				})
-			}
-		}
 
 		const finalContractRequisite = await prisma.contractRequisite.findFirst({
 			where: {
@@ -456,10 +478,24 @@ const createContract = async (ctx: AddContractContext) => {
 		})
 
 		await ctx.reply(
-			`📜 Сделка #${contract.code} заключена\n\nЦена за 1 BTC: ${currencyFormatter(
-				ctx.session.pricePerCoin,
-				ctx.session.currentCurrency
-			)}\n\nВремя на оплату сделки: 15 минут\n\nТрейдер: /user_${contract.userId}\nРепутация: 100%\nОтзывы: 😊(0) 🙁(0)\n\nПровел сделок: 0\n\nЗарегистрирован: Дата не определена\n\nУсловия:\nМинимальная сумма - ${currencyFormatter(ctx.scene.session.minPrice, ctx.session.currentCurrency)}\nМаксимальная сумма - ${currencyFormatter(ctx.scene.session.maxPrice, ctx.session.currentCurrency)}\n\nСпособ оплаты: ${paymentMethod?.name}\nРеквизиты для оплаты: ${finalContractRequisite?.paymentData}`,
+			`🎉 Сделка успешно создана!\n\n` +
+			`📊 Детали сделки:\n` +
+			`• Номер: #${contract.code}\n` +
+			`• Тип: ${ctx.session.actionType === 'sell' ? 'Продажа' : 'Покупка'} BTC\n` +
+			`• Цена за 1 BTC: ${currencyFormatter(ctx.session.pricePerCoin, ctx.session.currentCurrency)}\n\n` +
+			`⏰ Время на оплату: 15 минут\n\n` +
+			`👤 Трейдер: /user_${contract.userId}\n` +
+			`⭐️ Репутация: 100%\n` +
+			`📝 Отзывы: 😊(0) 🙁(0)\n` +
+			`📈 Проведено сделок: 0\n` +
+			`📅 Дата регистрации: Не определена\n\n` +
+			`💰 Условия сделки:\n` +
+			`• Минимальная сумма: ${currencyFormatter(ctx.scene.session.minPrice, ctx.session.currentCurrency)}\n` +
+			`• Максимальная сумма: ${currencyFormatter(ctx.scene.session.maxPrice, ctx.session.currentCurrency)}\n\n` +
+			`💳 Способ оплаты: ${paymentMethod?.name}\n` +
+			`📱 Реквизиты: ${finalContractRequisite?.paymentData}\n\n` +
+			(ctx.session.actionType === 'sell' ? `🧊 Замороженная сумма: ${maxAmountInBTC.toFixed(8)} BTC\n\n` : '') +
+			`❗️ Важно: Сохраните номер сделки для дальнейшего отслеживания`,
 			{
 				parse_mode: 'HTML',
 				reply_markup: {

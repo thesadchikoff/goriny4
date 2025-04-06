@@ -23,6 +23,8 @@ import {Networks} from 'bitcore-lib'
 import {InlineKeyboardButton} from 'telegraf/typings/core/types/typegram'
 import currencyService from '../service/currency.service'
 import disputeModule from "@/core/dispute/dispute.module";
+import { cancelTransactionAction } from '@/actions/transfer/cancel-transaction.action'
+import frozenBalanceService from '@/service/frozen-balance.service';
 
 export const callbackHandler = () => {
 	bot.on('callback_query', async query => {
@@ -431,7 +433,7 @@ export const callbackHandler = () => {
 			const matchDeleteContract = data.match(/^delete-contract-(\d+)$/)
 			const matchSendMessageTo = data.match(/^send-message-(\d+)$/)
 			const matchPaymentSuccessful = data.match(/^payment-successful-(\d+)$/)
-			const matchCancelContract = data.match(/^cancel-contract-(\d+)$/)
+			const matchCancelTransaction = data.match(/^cancel-transaction-(.+)$/)
 			const matchContactAddress = data.match(/^address-contact-(\d+)$/)
 			const matchDeleteContactAddress = data.match(/^delete-contact-(\d+)$/)
 
@@ -481,6 +483,24 @@ export const callbackHandler = () => {
 
 			if (matchBuyContract) {
 				const itemId = Number(matchBuyContract[1])
+				
+				// Найдем контракт
+				const contract = await prisma.contract.findFirst({
+					where: {
+						id: itemId,
+					},
+					include: {
+						author: true
+					}
+				});
+				
+				// Проверка, что пользователь не пытается купить у самого себя
+				if (contract?.author.id === query.from.id.toString()) {
+					return query.answerCbQuery('❌ Вы не можете торговать с самим собой', {
+						show_alert: true
+					});
+				}
+				
 				// @ts-ignore
 				query.scene.state.contractId = itemId
 				const user = await userService.fetchOneById({
@@ -542,44 +562,28 @@ export const callbackHandler = () => {
 						)
 					})
 			}
-			if (matchCancelContract) {
-				const itemId = Number(matchCancelContract[1])
-
-				const transaction = await prisma.user.findFirst({
+			if (matchCancelTransaction) {
+				console.log('[CALLBACK_HANDLER] Received cancel-transaction callback');
+				console.log('[CALLBACK_HANDLER] Callback data:', data);
+				console.log('[CALLBACK_HANDLER] Match result:', matchCancelTransaction);
+				console.log('[CALLBACK_HANDLER] Transaction ID:', matchCancelTransaction[1]);
+				
+				// Попробуем найти транзакцию напрямую перед вызовом действия
+				const transaction = await prisma.contractTransaction.findFirst({
 					where: {
-						id: itemId.toString(),
-					},
-					include: {
-						SellerContractTransaction: true,
-						BuyerContractTransaction: true,
-					},
-				})
-				if (transaction?.SellerContractTransaction) {
-					await prisma.contractTransaction.delete({
-						where: {
-							id: transaction.SellerContractTransaction.id,
-						},
-					})
-					// @ts-ignore
-					query.session.sellerId = null
-					// @ts-ignore
-					query.session.buyerId = null
-					await bot.telegram.sendMessage(
-						transaction.BuyerContractTransaction?.buyerId!,
-						`Сделка #${transaction.SellerContractTransaction.code} отменена`
-					)
-					await bot.telegram.sendMessage(
-						transaction.SellerContractTransaction.sellerId!,
-						`Сделка #${transaction.SellerContractTransaction.code} отменена`
-					)
-					await prisma.contractTransaction.delete({
-						where: {
-							id: transaction.SellerContractTransaction.id,
-						},
-					})
-					return
-				}
-				return
+						id: matchCancelTransaction[1]
+					}
+				});
+				
+				console.log('[CALLBACK_HANDLER] Transaction found directly:', transaction ? 'Yes' : 'No');
+				
+				// Создаем копию контекста с явно установленным match
+				const ctxWithMatch = {
+					...query,
+					match: matchCancelTransaction
+				};
+				
+				return cancelTransactionAction(ctxWithMatch);
 			}
 			if (matchPaymentSuccessful) {
 				const itemId = Number(matchPaymentSuccessful[1])
@@ -711,6 +715,24 @@ export const callbackHandler = () => {
 			}
 			if (matchSellContract) {
 				const itemId = Number(matchSellContract[1])
+				
+				// Найдем контракт
+				const contract = await prisma.contract.findFirst({
+					where: {
+						id: itemId,
+					},
+					include: {
+						author: true
+					}
+				});
+				
+				// Проверка, что пользователь не пытается продать самому себе
+				if (contract?.author.id === query.from.id.toString()) {
+					return query.answerCbQuery('❌ Вы не можете торговать с самим собой', {
+						show_alert: true
+					});
+				}
+				
 				// @ts-ignore
 				query.scene.state.contractId = itemId
 				await prisma.contract
@@ -786,19 +808,74 @@ export const callbackHandler = () => {
 			}
 			if (matchDeleteContract) {
 				const itemId = Number(matchDeleteContract[1])
+				
+				// Получаем контракт с дополнительной информацией
+				const contractToDelete = await prisma.contract.findFirst({
+					where: {
+						id: itemId
+					},
+					include: {
+						author: {
+							include: {
+								wallet: true
+							}
+						}
+					}
+				});
+				
+				if (!contractToDelete) {
+					return query.answerCbQuery('Контракт не найден', { show_alert: true });
+				}
+				
+				// Получаем информацию о замороженных средствах до удаления
+				let frozenInfo = null;
+				
+				// Если контракт типа "sell", нужно разморозить BTC
+				if (contractToDelete.type === 'sell') {
+					console.log(`[CONTRACT_DELETE] Unfreezing ${contractToDelete.amount} BTC for contract #${contractToDelete.id}`);
+					
+					// Получаем текущее состояние замороженных средств
+					frozenInfo = await frozenBalanceService.checkAvailableBalance(
+						contractToDelete.author.id,
+						0 // 0, так как нам не нужно проверять доступность для определенной суммы
+					);
+					
+					console.log(`[CONTRACT_DELETE] Before unfreezing - Total: ${frozenInfo.totalBalance}, Frozen: ${frozenInfo.frozenBalance}, Available: ${frozenInfo.availableBalance}`);
+				}
+				
+				// Удаляем контракт
 				await prisma.contract
 					.delete({
 						where: {
 							id: itemId,
 						},
 					})
-					.then(res => {
-						return query.editMessageText(`Заявка <a>#${res.id}</a> удалена`, {
+					.then(async (res) => {
+						let message = `Заявка <a>#${res.id}</a> удалена`;
+						
+						// Если контракт типа "sell", добавляем информацию о размороженных BTC
+						if (res.type === 'sell') {
+							// Получаем обновленное состояние
+							const updatedFrozenInfo = await frozenBalanceService.checkAvailableBalance(
+								contractToDelete.author.id,
+								0
+							);
+							
+							message += `\n\n🧊 <b>Информация о средствах:</b>\n` +
+								`• Разморожено: ${res.amount.toFixed(8)} BTC\n` +
+								`• Общий баланс: ${updatedFrozenInfo.totalBalance.toFixed(8)} BTC\n` +
+								`• Ещё заморожено: ${updatedFrozenInfo.frozenBalance.toFixed(8)} BTC\n` +
+								`• Доступно сейчас: ${updatedFrozenInfo.availableBalance.toFixed(8)} BTC`;
+							
+							console.log(`[CONTRACT_DELETE] After unfreezing - Total: ${updatedFrozenInfo.totalBalance}, Frozen: ${updatedFrozenInfo.frozenBalance}, Available: ${updatedFrozenInfo.availableBalance}`);
+						}
+						
+						return query.editMessageText(message, {
 							parse_mode: 'HTML',
 							reply_markup: {
 								inline_keyboard: [previousButton('my_ads')],
 							},
-						})
+						});
 					})
 			}
 			if (matchSellPaymentMethod) {
@@ -915,6 +992,7 @@ export const callbackHandler = () => {
 						},
 						include: {
 							paymentMethod: true,
+							ContractTransaction: true
 						},
 					})
 					.then(async res => {
@@ -926,25 +1004,47 @@ export const callbackHandler = () => {
 								paymentMethod: true
 							}
 						})
+						
+						const buttons = []
+						
+						// Находим активные транзакции для этого контракта
+						const activeTransactions = await prisma.contractTransaction.findMany({
+							where: {
+								contractId: res?.id,
+								isAccepted: false
+							}
+						});
+
+						// Если есть активная транзакция, добавляем кнопку отмены
+						if (activeTransactions.length > 0) {
+							buttons.push([
+								{
+									callback_data: `cancel-transaction-${activeTransactions[0].id}`,
+									text: '❌ Отменить сделку',
+								}
+							])
+						}
+						
+						// Кнопка удаления контракта
+						buttons.push([
+							{
+								callback_data: `delete-contract-${res?.id}`,
+								text: '🗑 Удалить контракт',
+							},
+						])
+						
+						// Кнопка возврата
+						buttons.push(previousButton('my_ads'))
+						
 						return query.editMessageText(
-							`📰 Заявка <a>#${res?.id}</a>\n\n<b>Метод оплаты:</b> ${contractRequisite.paymentMethod.name} | ${contractRequisite?.paymentData}\n<b>Курс 1 BTC: </b>${currencyFormatter(
+							`📰 Заявка <a>#${res?.id}</a>\n\n<b>Метод оплаты:</b> ${contractRequisite?.paymentMethod.name} | ${contractRequisite?.paymentData}\n<b>Курс 1 BTC: </b>${currencyFormatter(
 								course?.bitcoin.rub!,
 								'rub'
-							)}\n<b>Минимальная сумма:</b> ${res?.price} ${res?.currency
-							}\n<b>Максимальная сумма:</b> ${res?.maxPrice} ${res?.currency}`,
+							)}\n<b>Минимальная сумма:</b> ${res?.price} ${res?.currency}\n<b>Максимальная сумма:</b> ${res?.maxPrice} ${res?.currency}`,
 							{
 								parse_mode: 'HTML',
-
 								reply_markup: {
-									inline_keyboard: [
-										[
-											{
-												callback_data: `delete-contract-${res?.id}`,
-												text: '❌ Удалить контракт',
-											},
-										],
-										[...previousButton('my_ads')],
-									],
+									inline_keyboard: buttons
 								},
 							}
 						)

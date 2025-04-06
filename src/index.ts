@@ -40,6 +40,18 @@ bot.telegram.setMyCommands([
 		command: '/start',
 		description: 'Запустить бота',
 	},
+	{
+		command: '/wallet',
+		description: 'Показать баланс кошелька',
+	},
+	{
+		command: '/balance',
+		description: 'Показать баланс кошелька (альтернатива)',
+	},
+	{
+		command: '/version',
+		description: 'Показать версию бота',
+	},
 ])
 attachmentDataBase()
 attachmentCommands()
