@@ -10,10 +10,76 @@ import {prisma} from './prisma/prisma.client'
 import {checkBlockMiddleware} from "@/middlewares/check-block.middleware";
 import { createBitcoinWallet } from "@/trust-wallet/bitcoin-wallet";
 import { BitcoinNetwork } from "@/trust-wallet/bitcoin-balance";
-import { scheduleLogsDelivery } from '@/commands/get-logs.command';
+import { scheduleLogsDelivery, scheduleLogsCleanup } from '@/commands/get-logs.command';
 import { EditContractDescription } from './scenes/edit-contract-description'
 import { ADMIN_ID, initAdmin } from './utils/admin-id.utils';
 import { Context } from 'telegraf';
+import { loggerMiddleware } from '@/middlewares/logger.middleware';
+import { logInfo, logError, logDebug, logErrorWithAutoDetails } from '@/core/logs/logger';
+import { BotContext } from '@/@types/scenes';
+import { startbotCommand } from '@/commands/startbot.command'
+
+// Добавляем обработчики неперехваченных исключений для предотвращения падения приложения
+process.on('uncaughtException', (error: Error) => {
+	try {
+		// Проверяем, не связана ли ошибка с логированием в Telegram
+		const errorMessage = error.message || '';
+		const isTelegramError = errorMessage.includes('Bad Request') || 
+			errorMessage.includes('chat not found') || 
+			errorMessage.includes("can't parse entities") ||
+			errorMessage.includes('Telegram');
+		
+		// Если это не ошибка логгера, используем logErrorWithAutoDetails
+		if (!isTelegramError) {
+			logErrorWithAutoDetails(`Неперехваченное исключение: ${errorMessage}`);
+		}
+		
+		console.error('КРИТИЧЕСКАЯ ОШИБКА (ПЕРЕХВАЧЕНА):', error);
+		
+		// Отправляем сообщение администратору только для не-телеграм ошибок
+		if (!isTelegramError) {
+			bot.telegram.sendMessage(
+				ADMIN_ID,
+				`🚨 КРИТИЧЕСКАЯ ОШИБКА!\n\n${errorMessage}\n\nОшибка перехвачена, бот продолжает работу.`
+			).catch(err => {
+				console.error('Не удалось отправить сообщение об ошибке админу:', err);
+			});
+		}
+	} catch (handlerError) {
+		console.error('Ошибка в обработчике необработанных исключений:', handlerError);
+	}
+});
+
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+	try {
+		const errorMessage = reason instanceof Error ? reason.message : String(reason);
+		
+		// Проверяем, не связана ли ошибка с логированием в Telegram
+		const isTelegramError = errorMessage.includes('Bad Request') || 
+			errorMessage.includes('chat not found') || 
+			errorMessage.includes("can't parse entities") ||
+			errorMessage.includes('Telegram');
+		
+		// Если это не ошибка логгера, используем logErrorWithAutoDetails
+		if (!isTelegramError) {
+			logErrorWithAutoDetails(`Необработанное обещание: ${errorMessage}`);
+		}
+		
+		console.error('НЕОБРАБОТАННОЕ ОБЕЩАНИЕ (ПЕРЕХВАЧЕНО):', reason);
+		
+		// Отправляем сообщение администратору только для не-телеграм ошибок
+		if (!isTelegramError) {
+			bot.telegram.sendMessage(
+				ADMIN_ID,
+				`⚠️ НЕОБРАБОТАННОЕ ОБЕЩАНИЕ!\n\n${errorMessage}\n\nОшибка перехвачена, бот продолжает работу.`
+			).catch(err => {
+				console.error('Не удалось отправить сообщение об ошибке админу:', err);
+			});
+		}
+	} catch (handlerError) {
+		console.error('Ошибка в обработчике необработанных обещаний:', handlerError);
+	}
+});
 
 const initConfig = async () => {
 	const config = await prisma.config.findFirst()
@@ -28,15 +94,19 @@ const initConfig = async () => {
 				adminWalletWIF: adminWallet.wif
 			},
 		})
+		logInfo('Создана начальная конфигурация бота', { newConfig: true });
 		return
 	}
+	logDebug('Конфигурация бота загружена', { configExists: true });
 	return
 }
 
 export const Stage = attachmentScenes()
-Stage.command('start', startCommand)
+// Stage.command('start', startCommand)
 bot.use(checkBlockMiddleware)
 bot.use(session())
+// Добавляем middleware логирования
+bot.use(loggerMiddleware)
 // @ts-ignore
 bot.use(Stage)
 
@@ -66,6 +136,9 @@ attachmentActions()
 // Запускаем задачу ежедневной отправки логов
 scheduleLogsDelivery(bot);
 
+// Запускаем задачу еженедельной очистки логов
+scheduleLogsCleanup();
+
 callbackHandler()
 initConfig()
 
@@ -77,20 +150,32 @@ bot.launch().then(async () => {
 	// Инициализируем администратора
 	await initAdmin();
 	
+	// Логируем информацию о настройках логирования
+	const telegramLoggingEnabled = !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID);
+	logInfo('Статус логирования', {
+		telegramLoggingEnabled,
+		fileLoggingEnabled: true,
+		startTime: new Date().toISOString(),
+		adminId: ADMIN_ID,
+		nodeEnv: process.env.NODE_ENV || 'development'
+	});
+	
 	// Отправляем сообщение администратору только при запуске
 	await bot.telegram.sendMessage(
 		ADMIN_ID,
 		'🤖 Бот успешно запущен и готов к работе!'
 	);
-	console.log('Бот успешно запущен');
-}).catch(error => {
+	logInfo('Бот успешно запущен', {
+		startTime: new Date().toISOString(),
+		adminId: ADMIN_ID,
+		nodeEnv: process.env.NODE_ENV || 'development'
+	});
+}).catch((error: Error) => {
+	logError('Ошибка при запуске бота', { error: error.message, stack: error.stack });
 	console.error('Ошибка при запуске бота:', error);
 });
 
-// Включаем graceful shutdown без отправки сообщения
-process.once('SIGINT', () => bot.stop('SIGINT'))
-process.once('SIGTERM', () => bot.stop('SIGTERM'))
-
+// Обработка глобальных ошибок Telegraf
 bot.catch(error => {
 	console.error('TELEGRAF ERROR', error)
 })

@@ -7,12 +7,13 @@ import {walletInlineKeyboard} from '@/keyboards/inline-keyboards/wallet.inline'
 import currencyService from '@/service/currency.service'
 import frozenBalanceService from '@/service/frozen-balance.service';
 import {dateFormat} from '@/utils/format-date' 
+import { Stage } from '@/index'
 
 /**
  * Команда для просмотра информации о кошельке пользователя
  */
 export const walletInfo = () => {
-    bot.command(['wallet', 'balance'], async (ctx) => {
+    Stage.command(['wallet', 'balance'], async (ctx) => {
         try {
             const user = await prisma.user.findFirst({
                 where: {

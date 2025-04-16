@@ -13,6 +13,9 @@ import { SupportScene } from '@/scenes/support/support.scene'
 import { answerTicketScene } from '@/scenes/support/answer-ticket.scene'
 import { replyToSupportScene } from '@/scenes/support/reply-to-support.scene'
 import { EditContractDescription } from '@/scenes/edit-contract-description'
+import starsPaymentScene from '@/scenes/stars-payment.scene'
+import { testPaymentSceneExport } from '@/commands/test-stars-payment.command'
+import { withdrawScene } from '@/commands/balance.command'
 import { Scenes } from 'telegraf'
 import { WizardContext } from 'telegraf/typings/scenes'
 
@@ -34,5 +37,8 @@ export const attachmentScenes = () => {
 		answerTicketScene,
 		replyToSupportScene,
 		EditContractDescription,
+		starsPaymentScene,
+		testPaymentSceneExport,
+		withdrawScene,
 	])
 }
