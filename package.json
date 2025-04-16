@@ -18,6 +18,7 @@
     "@trustwallet/wallet-core": "^4.0.42",
     "@types/bitcore-lib": "^0.15.6",
     "@types/node-cron": "^3.0.11",
+    "agentkeepalive": "^4.6.0",
     "argon2": "^0.40.1",
     "axios": "^1.7.2",
     "bip32": "^4.0.0",
@@ -35,11 +36,15 @@
     "node-cron": "^3.0.0",
     "prisma": "^5.21.1",
     "request-promise-native": "^1.0.9",
+    "socks-proxy-agent": "^8.0.5",
     "telegraf": "^4.16.3",
     "telegraf-session-local": "^2.1.1",
     "tiny-secp256k1": "^2.2.3",
     "typescript": "^5.4.5",
-    "web3": "^4.8.0"
+    "web3": "^4.8.0",
+    "winston": "^3.17.0",
+    "winston-daily-rotate-file": "^5.0.0",
+    "winston-telegram": "^2.7.0"
   },
   "devDependencies": {
     "@types/axios": "^0.9.36",

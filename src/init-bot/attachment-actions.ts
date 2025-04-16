@@ -38,6 +38,7 @@ import {Stage} from "@/index";
 import { editContractDescriptionAction } from '@/actions/contracts/edit-contract-description.action';
 import { myCodes } from '../callbacks/my-codes'
 import { deleteCode } from '../callbacks/delete-code'
+import { BalanceService } from '@/models/user-balance';
 
 export const attachmentActions = () => {
 	// @ts-ignore
@@ -118,4 +119,81 @@ export const attachmentActions = () => {
 	// Регистрируем обработчики для промокодов
 	bot.action('my_codes', myCodes)
 	bot.action(/^delete_code_(.+)$/, deleteCode)
+	
+	// Обработчики для платежей
+	bot.on('pre_checkout_query', (ctx) => {
+		// Подтверждаем предварительную проверку платежа
+		return ctx.answerPreCheckoutQuery(true);
+	});
+	
+	bot.on('successful_payment', async (ctx) => {
+		const payload = ctx.message.successful_payment.invoice_payload;
+		
+		// Проверяем, что это платеж звездами
+		if (payload.startsWith('stars_payment_')) {
+			const amount = ctx.message.successful_payment.total_amount;
+			
+			// Пополняем внутренний баланс пользователя
+			if (ctx.from) {
+				await BalanceService.addToBalance(ctx.from.id, amount);
+				
+				// Логируем транзакцию
+				await BalanceService.logTransaction(
+					ctx.from.id,
+					amount,
+					'deposit',
+					'Пополнение баланса звездами'
+				);
+			}
+			
+			await ctx.reply(
+				`Спасибо! Вы успешно пополнили баланс на ${amount} звезд.\n\n` +
+				'Используйте /balance для проверки баланса и вывода средств.'
+			);
+		}
+		
+		// Выходим из сцены, если пользователь находится в ней
+		if (ctx.scene && ctx.scene.current) {
+			return ctx.scene.leave();
+		}
+	});
+	
+	// Обработчик для просмотра баланса
+	bot.action('deposit_balance', async (ctx) => {
+		// Перенаправляем на команду пополнения звездами
+		if (ctx.callbackQuery && 'message' in ctx.callbackQuery) {
+			await ctx.deleteMessage(ctx.callbackQuery.message?.message_id);
+		}
+		await ctx.scene.enter('stars_payment');
+	});
+	
+	// Обработчик для вывода средств
+	bot.action('withdraw_balance', async (ctx) => {
+		if (ctx.callbackQuery && 'message' in ctx.callbackQuery) {
+			await ctx.deleteMessage(ctx.callbackQuery.message?.message_id);
+		}
+		await ctx.scene.enter('withdraw_balance');
+	});
+	
+	// Обработчик для истории транзакций
+	bot.action('transaction_history', async (ctx) => {
+		if (!ctx.from) {
+			return;
+		}
+		
+		const transactions = await BalanceService.getTransactionHistory(ctx.from.id);
+		
+		if (transactions.length === 0) {
+			await ctx.reply('У вас пока нет транзакций');
+			return;
+		}
+		
+		// Форматируем историю транзакций
+		const historyText = transactions.map((t) => {
+			const type = t.type === 'deposit' ? '➕ Пополнение' : '➖ Вывод';
+			return `${type}: ${t.amount} звезд\n${t.description}\n${t.createdAt.toLocaleString()}`;
+		}).join('\n\n');
+		
+		await ctx.reply(`История транзакций:\n\n${historyText}`);
+	});
 }
