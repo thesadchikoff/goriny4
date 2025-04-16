@@ -26,9 +26,9 @@ const writePromoName = async (ctx: WizardContext) => {
 			},
 		})
 		const balance = await getWalletBalance(user?.wallet?.address)
-		console.log(parseInt(ctx.text!), balance)
+		console.log(parseFloat(ctx.text!), balance)
 		// @ts-ignore
-		ctx.scene.state.amount = parseInt(ctx.text!)
+		ctx.scene.state.amount = parseFloat(ctx.text!)
 		if (balance! < parseInt(ctx.text!)) {
 			await ctx.reply('На вашем балансе недостаточно BTC.', {
 				reply_markup: {

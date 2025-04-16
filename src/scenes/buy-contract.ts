@@ -60,7 +60,8 @@ const sendBuyAmount = async (ctx: WizardContext) => {
 				contract?.maxPrice!,
 				// @ts-ignore
 				contract?.currency!
-			)}`,
+			)}` +
+			(contract?.comment ? `\n\n<b>Описание контракта:</b>\n${contract.comment}` : ''),
 			{
 				parse_mode: 'HTML',
 			}

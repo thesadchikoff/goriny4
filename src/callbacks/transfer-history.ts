@@ -1,57 +1,77 @@
-import {SceneContext} from 'telegraf/typings/scenes'
-import {previousButton} from '../keyboards/inline-keyboards/previous-button.inline'
-import {prisma} from '../prisma/prisma.client'
-import {dateFormat} from '../utils/format-date'
+import { Context } from 'telegraf'
+import { prisma } from '../prisma/prisma.client'
+import { currencyFormatter } from '../utils/currency-formatter'
 
-export const transferHistory = async (ctx: SceneContext) => {
-	const user = await prisma.user.findFirst({
-		where: {
-			id: ctx.from?.id.toString(),
-		},
-	})
-	if (!user) {
-		return ctx.editMessageText('Не удалось получить историю переводов', {
-			reply_markup: {
-				inline_keyboard: [previousButton('wallet')],
-			},
-		})
+interface TransferWithUsers {
+	id: string
+	fromUserId: string
+	toUserId: string
+	count: number
+	createdAt: Date
+	fromUser: {
+		username: string
 	}
-	const transfers = await prisma.transfer.findMany({
-		where: {
-			fromUserId: user.id,
-		},
-	})
-	if (!transfers.length) {
-		return ctx.editMessageText(
-			'<b>⏱️ История переводов:</b>\n\nВы пока не совершили ни одного перевода',
-			{
-				parse_mode: 'HTML',
-				reply_markup: {
-					inline_keyboard: [previousButton('wallet')],
-				},
-			}
-		)
+	toUser: {
+		username: string
 	}
-	let transferData = ''
+}
 
-	const transferPromises = transfers.map(async transfer => {
-		const toUser = await prisma.user.findFirst({
+export const transferHistory = async (ctx: any) => {
+	try {
+		const userId = ctx.from?.id.toString()
+		if (!userId) {
+			await ctx.reply('Ошибка: не удалось определить пользователя')
+			return
+		}
+
+		const transfers = await prisma.transfer.findMany({
 			where: {
-				id: transfer.toUserId,
+				OR: [
+					{ fromUserId: userId },
+					{ toUserId: userId }
+				]
 			},
+			include: {
+				fromUser: {
+					select: {
+						username: true
+					}
+				},
+				toUser: {
+					select: {
+						username: true
+					}
+				}
+			},
+			orderBy: {
+				createdAt: 'desc'
+			},
+			take: 10
 		})
-		return `[${dateFormat(transfer.createdAt)}] Перевод пользователю /${
-			toUser?.login
-		}. Сумма ${transfer.count} BTC.\n`
-	})
 
-	const results = await Promise.all(transferPromises)
-	transferData = results.join('')
+		if (transfers.length === 0) {
+			await ctx.reply('У вас пока нет истории переводов')
+			return
+		}
 
-	await ctx.editMessageText(`<b>⏱️ История переводов:</b>\n\n${transferData}`, {
-		reply_markup: {
-			inline_keyboard: [previousButton('wallet')],
-		},
-		parse_mode: 'HTML',
-	})
+		const formattedTransfers = transfers.map((transfer: TransferWithUsers) => {
+			const isOutgoing = transfer.fromUserId === userId
+			const otherUser = isOutgoing ? transfer.toUser : transfer.fromUser
+			const direction = isOutgoing ? '➡️ Отправлен' : '⬅️ Получен'
+			const amount = currencyFormatter(transfer.count, 'BTC')
+			
+			return `${direction} перевод\n` +
+				   `👤 Пользователь: ${otherUser.username}\n` +
+				   `💰 Сумма: ${amount}\n` +
+				   `📅 Дата: ${transfer.createdAt.toLocaleString()}\n`
+		})
+
+		await ctx.reply(
+			'📋 История последних переводов:\n\n' +
+			formattedTransfers.join('\n')
+		)
+	} catch (error) {
+		console.error('Error in transferHistory:', error)
+		await ctx.reply('Произошла ошибка при получении истории переводов')
+	}
 }

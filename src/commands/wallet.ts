@@ -3,7 +3,7 @@ import {bot} from '@/config/bot'
 import {prisma} from '@/prisma/prisma.client'
 import {getWalletBalance} from '@/trust-wallet/get-balance'
 import {currencyFormatter} from '@/utils/currency-formatter'
-import {inlineKeyboardForWallets} from '@/keyboards/inline-keyboards/wallet.inline'
+import {walletInlineKeyboard} from '@/keyboards/inline-keyboards/wallet.inline'
 import currencyService from '@/service/currency.service'
 import frozenBalanceService from '@/service/frozen-balance.service';
 import {dateFormat} from '@/utils/format-date' 
@@ -19,7 +19,8 @@ export const walletInfo = () => {
                     id: ctx.from.id.toString()
                 },
                 include: {
-                    wallet: true
+                    wallet: true,
+                    currency: true
                 }
             });
 
@@ -36,6 +37,9 @@ export const walletInfo = () => {
             // Получаем текущий курс BTC
             const currency = await currencyService.getCurrency('bitcoin');
 
+            // Определяем валюту пользователя (по умолчанию RUB)
+            const userCurrency = user.currency?.value?.toLowerCase() || 'rub';
+
             // Формируем основное сообщение
             let message = `💼 <b>Информация о кошельке</b>\n\n`;
             
@@ -44,28 +48,28 @@ export const walletInfo = () => {
             message += `📊 <b>Состояние баланса:</b>\n`;
             message += `• Общий баланс: ${frozenInfo.totalBalance.toFixed(8)} BTC`;
             
-            // Конвертация в рубли или другую валюту, если доступна
-            if (currency?.bitcoin?.rub) {
-                const btcValueInRub = frozenInfo.totalBalance * currency.bitcoin.rub;
-                message += ` (≈${currencyFormatter(btcValueInRub, 'rub')})\n`;
+            // Конвертация в валюту пользователя
+            if (currency?.bitcoin) {
+                const btcValueInUserCurrency = frozenInfo.totalBalance * currency.bitcoin[userCurrency as 'rub' | 'usd' | 'eur'];
+                message += ` (≈${currencyFormatter(btcValueInUserCurrency, userCurrency)})\n`;
             } else {
                 message += '\n';
             }
             
             // Информация о заморозке
             message += `• Заморожено: ${frozenInfo.frozenBalance.toFixed(8)} BTC`;
-            if (currency?.bitcoin?.rub && frozenInfo.frozenBalance > 0) {
-                const frozenValueInRub = frozenInfo.frozenBalance * currency.bitcoin.rub;
-                message += ` (≈${currencyFormatter(frozenValueInRub, 'rub')})\n`;
+            if (currency?.bitcoin && frozenInfo.frozenBalance > 0) {
+                const frozenValueInUserCurrency = frozenInfo.frozenBalance * currency.bitcoin[userCurrency as 'rub' | 'usd' | 'eur'];
+                message += ` (≈${currencyFormatter(frozenValueInUserCurrency, userCurrency)})\n`;
             } else {
                 message += '\n';
             }
             
             // Доступные средства
             message += `• Доступно: ${frozenInfo.availableBalance.toFixed(8)} BTC`;
-            if (currency?.bitcoin?.rub) {
-                const availableValueInRub = frozenInfo.availableBalance * currency.bitcoin.rub;
-                message += ` (≈${currencyFormatter(availableValueInRub, 'rub')})\n`;
+            if (currency?.bitcoin) {
+                const availableValueInUserCurrency = frozenInfo.availableBalance * currency.bitcoin[userCurrency as 'rub' | 'usd' | 'eur'];
+                message += ` (≈${currencyFormatter(availableValueInUserCurrency, userCurrency)})\n`;
             } else {
                 message += '\n';
             }
@@ -81,7 +85,7 @@ export const walletInfo = () => {
             return ctx.reply(message, {
                 parse_mode: 'HTML',
                 reply_markup: {
-                    inline_keyboard: inlineKeyboardForWallets
+                    inline_keyboard: walletInlineKeyboard
                 }
             });
         } catch (error) {

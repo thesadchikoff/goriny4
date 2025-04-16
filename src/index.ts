@@ -11,6 +11,9 @@ import {checkBlockMiddleware} from "@/middlewares/check-block.middleware";
 import { createBitcoinWallet } from "@/trust-wallet/bitcoin-wallet";
 import { BitcoinNetwork } from "@/trust-wallet/bitcoin-balance";
 import { scheduleLogsDelivery } from '@/commands/get-logs.command';
+import { EditContractDescription } from './scenes/edit-contract-description'
+import { ADMIN_ID, initAdmin } from './utils/admin-id.utils';
+import { Context } from 'telegraf';
 
 const initConfig = async () => {
 	const config = await prisma.config.findFirst()
@@ -29,12 +32,14 @@ const initConfig = async () => {
 	}
 	return
 }
+
 export const Stage = attachmentScenes()
 Stage.command('start', startCommand)
 bot.use(checkBlockMiddleware)
 bot.use(session())
 // @ts-ignore
 bot.use(Stage)
+
 bot.telegram.setMyCommands([
 	{
 		command: '/start',
@@ -53,6 +58,7 @@ bot.telegram.setMyCommands([
 		description: 'Показать версию бота',
 	},
 ])
+
 attachmentDataBase()
 attachmentCommands()
 attachmentActions()
@@ -62,7 +68,29 @@ scheduleLogsDelivery(bot);
 
 callbackHandler()
 initConfig()
-bot.launch()
+
+// Регистрируем сцену редактирования описания контракта
+Stage.register(EditContractDescription)
+
+// Запускаем бота
+bot.launch().then(async () => {
+	// Инициализируем администратора
+	await initAdmin();
+	
+	// Отправляем сообщение администратору только при запуске
+	await bot.telegram.sendMessage(
+		ADMIN_ID,
+		'🤖 Бот успешно запущен и готов к работе!'
+	);
+	console.log('Бот успешно запущен');
+}).catch(error => {
+	console.error('Ошибка при запуске бота:', error);
+});
+
+// Включаем graceful shutdown без отправки сообщения
+process.once('SIGINT', () => bot.stop('SIGINT'))
+process.once('SIGTERM', () => bot.stop('SIGTERM'))
+
 bot.catch(error => {
 	console.error('TELEGRAF ERROR', error)
 })

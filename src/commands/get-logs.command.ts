@@ -5,6 +5,7 @@ import path from 'path';
 import { logErrorWithAutoDetails } from '@/core/logs/log-error-to-file';
 import { prisma } from '@/prisma/prisma.client';
 import * as cron from 'node-cron';
+import messages from '@/config/bot.config.json'
 
 /**
  * Команда для выгрузки файла logs.txt
@@ -74,7 +75,7 @@ export const scheduleLogsDelivery = (bot: any) => {
       
       // Отправляем файл в указанный чат
       await bot.telegram.sendDocument(
-        '-1002304369921', // ID чата
+        messages.App.GroupId, // ID чата
         { source: logsPath, filename: 'logs.txt' },
         { caption: '📊 Ежедневный отчет логов' }
       );
@@ -118,7 +119,7 @@ export const getLogsGroupCommand = async (ctx: Context) => {
     }
     
     // Проверяем, что команда вызвана в нужном чате
-    if (ctx.chat?.id.toString() !== '-1002304369921') {
+    if (ctx.chat?.id.toString() !== messages.App.GroupId) {
       await ctx.reply('Эта команда доступна только в общем чате администраторов.');
       return;
     }

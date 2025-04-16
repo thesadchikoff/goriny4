@@ -12,24 +12,128 @@ class FrozenBalanceService {
    */
   async getFrozenBalance(userId: string): Promise<number> {
     try {
-      // Получаем все активные контракты на продажу от данного пользователя
-      const sellContracts = await prisma.contract.findMany({
+      // Получаем все записи о замороженных средствах для пользователя
+      const frozenBalances = await prisma.frozenBalance.findMany({
         where: {
-          userId: userId,
-          type: 'sell'
+          userId: userId
         }
       });
 
       // Суммируем все замороженные средства
       let totalFrozen = 0;
-      for (const contract of sellContracts) {
-        totalFrozen += contract.amount;
+      for (const frozenBalance of frozenBalances) {
+        totalFrozen += frozenBalance.amount;
       }
 
       return totalFrozen;
     } catch (error) {
       console.error('[FROZEN_BALANCE] Error getting frozen balance:', error);
       return 0;
+    }
+  }
+
+  /**
+   * Замораживает средства для контракта
+   * @param userId ID пользователя
+   * @param contractId ID контракта
+   * @param amount Сумма для заморозки
+   * @returns Результат операции
+   */
+  async freezeBalance(userId: string, contractId: number, amount: number): Promise<boolean> {
+    try {
+      // Проверяем, достаточно ли средств
+      const balanceInfo = await this.checkAvailableBalance(userId, amount);
+      if (!balanceInfo.sufficient) {
+        console.error(`[FROZEN_BALANCE] Insufficient funds for user ${userId}. Required: ${amount}, Available: ${balanceInfo.availableBalance}`);
+        return false;
+      }
+
+      // Получаем пользователя с кошельком
+      const user = await userService.fetchOneById({ id: userId });
+      if (!user?.wallet) {
+        console.error(`[FROZEN_BALANCE] User ${userId} has no wallet`);
+        return false;
+      }
+
+      // Создаем запись о замороженных средствах
+      await prisma.frozenBalance.create({
+        data: {
+          userId: userId,
+          contractId: contractId,
+          amount: amount
+        }
+      });
+
+      // Обновляем общий замороженный баланс в кошельке
+      await prisma.wallet.update({
+        where: {
+          id: user.wallet.id
+        },
+        data: {
+          frozenBalance: {
+            increment: amount
+          }
+        }
+      });
+
+      return true;
+    } catch (error) {
+      console.error('[FROZEN_BALANCE] Error freezing balance:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Размораживает средства для контракта
+   * @param userId ID пользователя
+   * @param contractId ID контракта
+   * @returns Результат операции
+   */
+  async unfreezeBalance(userId: string, contractId: number): Promise<boolean> {
+    try {
+      // Получаем запись о замороженных средствах
+      const frozenBalance = await prisma.frozenBalance.findFirst({
+        where: {
+          userId: userId,
+          contractId: contractId
+        }
+      });
+
+      if (!frozenBalance) {
+        console.error(`[FROZEN_BALANCE] No frozen balance found for user ${userId} and contract ${contractId}`);
+        return false;
+      }
+
+      // Получаем пользователя с кошельком
+      const user = await userService.fetchOneById({ id: userId });
+      if (!user?.wallet) {
+        console.error(`[FROZEN_BALANCE] User ${userId} has no wallet`);
+        return false;
+      }
+
+      // Удаляем запись о замороженных средствах
+      await prisma.frozenBalance.delete({
+        where: {
+          id: frozenBalance.id
+        }
+      });
+
+      // Обновляем общий замороженный баланс в кошельке
+      await prisma.wallet.update({
+        where: {
+          id: user.wallet.id
+        },
+        data: {
+          frozenBalance: {
+            decrement: frozenBalance.amount
+          }
+        }
+      });
+
+      return true;
+    } catch (error) {
+      console.error('[FROZEN_BALANCE] Error unfreezing balance:', error);
+      return false;
     }
   }
 
