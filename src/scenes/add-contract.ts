@@ -5,7 +5,7 @@ import {prisma} from '../prisma/prisma.client'
 import currencyService from '../service/currency.service'
 import {currencyFormatter} from '../utils/currency-formatter'
 import userService from "@/db/user.service";
-import {paymentMethodsForContract} from "@/keyboards/inline-keyboards/payment-methods-for-contract.inline";
+import {paymentMethodsForContract, SUPPORTED_CURRENCIES} from "@/keyboards/inline-keyboards/payment-methods-for-contract.inline";
 import { CallbackQuery } from 'telegraf/typings/core/types/typegram';
 import { BotContext } from '@/@types/scenes';
 import frozenBalanceService from '@/service/frozen-balance.service';
@@ -43,18 +43,29 @@ type AddContractContext = {
 }
 
 const useCurrentPaymentMethod = (ctx: AddContractContext) => {
+	let currentPaymentMethodId = ctx.session.createContract.currentPaymentMethodId || ''
+
 	const setPaymentMethod = (id: string) => {
+		currentPaymentMethodId = id
 		ctx.session.createContract.currentPaymentMethodId = id
+		console.log('Setting payment method ID:', id)
+		console.log('After setting, current ID:', currentPaymentMethodId)
 	}
+
 	return {
-		currentPaymentMethodId: ctx.session.createContract.currentPaymentMethodId,
+		currentPaymentMethodId,
 		setPaymentMethod
 	}
 }
 
 const selectAction = async (ctx: AddContractContext) => {
 	try {
-		ctx.session.createContract = {}
+		ctx.session.createContract = {
+			currentPaymentMethodId: '',
+			currentCurrency: '',
+			pricePerCoin: 0,
+			currentRequisite: null
+		}
 		await ctx.editMessageText(`Вы хотите продать или купить криптовалюту?`, {
 			parse_mode: 'HTML',
 			reply_markup: {
@@ -144,27 +155,15 @@ const chooseCountBTC = async (ctx: AddContractContext) => {
 		ctx.session.currentCurrency = currentCurrency.value
 		const currentCourseBTC = await currencyService.getCurrency('bitcoin')
 		const getMessage = () => {
-			switch (currentCurrency.value) {
-				case 'RUB':
-					return `Средний рыночный курс сейчас: ${currencyFormatter(
-						currentCourseBTC?.bitcoin.rub!,
-						'rub'
-					)}\n\nИсточник: <b>Coingecko</b>`
-				case 'USD':
-					return `<b>Средний рыночный курс сейчас: </b>${currencyFormatter(
-						currentCourseBTC?.bitcoin.usd!,
-						'usd'
-					)}\n\nИсточник: <b>Coingecko</b>`
-				case 'EUR':
-					return `<b>Средний рыночный курс сейчас:</b> ${currencyFormatter(
-						currentCourseBTC?.bitcoin.eur!,
-						'eur'
-					)}\n\nИсточник: <b>Coingecko</b>`
-			}
+			const currency = currentCurrency.value.toLowerCase()
+			const rate = currentCourseBTC?.bitcoin[currency]
+			const formattedRate = currencyFormatter(rate!, currency)
+			
+			return `Средний рыночный курс сейчас: ${formattedRate}\n\nИсточник: <b>Coingecko</b>`
 		}
 
 		ctx.editMessageText(
-			`${getMessage()!}\n\nКаким образом формировать курс BTC в RUB?\n\nПришлите боту сообщение с одним из значений:\n\nПроцент от среднего рыночного курса:\nПример: +5% (или -1%, 0%)\n\nили фиксированное значение в RUB:\nПример: 4000000\n\nили разницу в RUB от биржевого курса:\n\nПример: +15000 (или -15000, -5000)\n\n⚠️ В курсе объявления должны быть учтены все возможные комиссии платёжных систем. Правилами сервиса запрещено взимать дополнительные комиссии с пользователей - покупатели должны переводить точную сумму сделки`,
+			`${getMessage()!}\n\nКаким образом формировать курс BTC в ${currentCurrency.value}?\n\nПришлите боту сообщение с одним из значений:\n\nПроцент от среднего рыночного курса:\nПример: +5% (или -1%, 0%)\n\nили фиксированное значение в ${currentCurrency.value}:\nПример: ${currentCurrency.value === 'RUB' ? '4000000' : currentCurrency.value === 'USD' ? '50000' : '45000'}\n\nили разницу в ${currentCurrency.value} от биржевого курса:\n\nПример: ${currentCurrency.value === 'RUB' ? '+15000' : currentCurrency.value === 'USD' ? '+200' : '+150'} (или ${currentCurrency.value === 'RUB' ? '-15000' : currentCurrency.value === 'USD' ? '-200' : '-150'}, ${currentCurrency.value === 'RUB' ? '-5000' : currentCurrency.value === 'USD' ? '-50' : '-40'})\n\n⚠️ В курсе объявления должны быть учтены все возможные комиссии платёжных систем. Правилами сервиса запрещено взимать дополнительные комиссии с пользователей - покупатели должны переводить точную сумму сделки`,
 			{
 				parse_mode: 'HTML',
 				reply_markup: {
@@ -244,7 +243,7 @@ const sendPricePerOneCoin = async (ctx: AddContractContext) => {
 				pricePerCoin,
 				// @ts-ignore
 				ctx.session.currentCurrency.toLowerCase()
-			)}</b>\n\nВведите мин. и макс. сумму отклика в RUB.\n<b>Например:</b> 1 - 1000000`,
+			)}</b>\n\nВведите мин. и макс. сумму отклика в ${ctx.session.currentCurrency}.\n<b>Например:</b> ${ctx.session.currentCurrency === 'RUB' ? '1 - 1000000' : ctx.session.currentCurrency === 'USD' ? '1 - 10000' : '1 - 9000'}`,
 			{
 				parse_mode: 'HTML',
 			}
@@ -319,10 +318,13 @@ const selectPaymentMethod = async (ctx: AddContractContext) => {
 		}
 
 		const paymentMethods = await prisma.paymentMethod.findMany()
+		const selectedCurrency = ctx.session.currentCurrency
+		const keyboard = await paymentMethodsForContract(paymentMethods, selectedCurrency)
+		
 		await ctx.reply(`Выберите способ оплаты`, {
 			parse_mode: 'HTML',
 			reply_markup: {
-				inline_keyboard: [...paymentMethodsForContract(paymentMethods)],
+				inline_keyboard: keyboard,
 			},
 		})
 		return ctx.wizard.next()
@@ -346,12 +348,39 @@ const selectPaymentMethod = async (ctx: AddContractContext) => {
 const writePaymentMethod = async (ctx: AddContractContext) => {
 	const {setPaymentMethod, currentPaymentMethodId} = useCurrentPaymentMethod(ctx)
 	const callbackQuery = ctx.callbackQuery
+	console.log('Selected payment method:', callbackQuery.data)
+	
+	// Получаем информацию о выбранном способе оплаты
+	const selectedPaymentMethod = await prisma.paymentMethod.findUnique({
+		where: {
+			id: Number(callbackQuery.data)
+		}
+	})
+	
+	if (!selectedPaymentMethod) {
+		await ctx.reply('❌ Ошибка: выбранный способ оплаты не найден')
+		return
+	}
+	
+	// Проверяем, поддерживает ли выбранный способ оплаты текущую валюту
+	const supportedCurrencies = SUPPORTED_CURRENCIES[selectedPaymentMethod.name] || ['RUB', 'USD', 'EUR']
+	const isSupported = supportedCurrencies.includes(ctx.session.currentCurrency)
+	
+	if (!isSupported) {
+		await ctx.reply(
+			`❌ Ошибка: ${selectedPaymentMethod.name} не поддерживает оплату в ${ctx.session.currentCurrency}\n\n` +
+			`Поддерживаемые валюты: ${supportedCurrencies.join(', ')}`
+		)
+		return
+	}
+	
 	setPaymentMethod(callbackQuery.data)
+	console.log('Current payment method ID after set:', currentPaymentMethodId)
 
 	await prisma.requisite.findMany({
 		where: {
 			userId: ctx.from.id.toString(),
-			paymentMethodId: Number(ctx.session.createContract.currentPaymentMethodId)
+			paymentMethodId: Number(currentPaymentMethodId)
 		}
 	}).then(response => ctx.editMessageText(response ? 'Укажите реквизиты или выберите существующий' : 'Укажите реквизиты', {
 		reply_markup: {
@@ -444,19 +473,44 @@ const createContract = async (ctx: AddContractContext) => {
 			data: {
 				type: ctx.session.actionType,
 				price: ctx.scene.session.minPrice,
-				amount: maxAmountInBTC,
+				amount: ctx.session.pricePerCoin,
 				userId: ctx.from.id.toString(),
 				currency: ctx.session.currentCurrency,
 				maxPrice: ctx.scene.session.maxPrice,
-				paymentMethodId: callbackQuery?.data ? ctx.session.currentRequisite.paymentMethodId : Number(currentPaymentMethodId),
-				contractRequisiteId: initialContractRequisite!.id,
-				// На момент создания контракта средства становятся замороженными автоматически
-				// Когда контракт удаляется через API, средства возвращаются обратно
-			},
-			include: {
-				paymentMethod: true,
+				contractRequisiteId: initialContractRequisite.id,
+				paymentMethodId: callbackQuery?.data ? ctx.session.currentRequisite.paymentMethodId : Number(currentPaymentMethodId)
 			}
 		})
+
+		// Если контракт типа "sell", замораживаем средства
+		if (ctx.session.actionType === "sell") {
+			// Замораживаем средства с помощью нового метода
+			const freezeResult = await frozenBalanceService.freezeBalance(
+				user.id,
+				contract.id,
+				maxAmountInBTC
+			)
+			
+			if (!freezeResult) {
+				console.error(`[CONTRACT_CREATE] Failed to freeze balance for contract #${contract.id}`)
+				// Удаляем созданный контракт, так как не удалось заморозить средства
+				await prisma.contract.delete({
+					where: {
+						id: contract.id
+					}
+				})
+				
+				return ctx.reply('❌ Произошла ошибка при заморозке средств. Пожалуйста, попробуйте позже.', {
+					reply_markup: {
+						inline_keyboard: [
+							[{ callback_data: 'main_menu', text: 'В главное меню' }]
+						]
+					}
+				})
+			}
+			
+			console.log(`[CONTRACT_CREATE] Successfully froze ${maxAmountInBTC} BTC for contract #${contract.id}`)
+		}
 
 		const finalContractRequisite = await prisma.contractRequisite.findFirst({
 			where: {

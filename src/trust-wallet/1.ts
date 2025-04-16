@@ -34,11 +34,14 @@ export async function sendTransaction(txHash) {
 
 export async function createTransaction(wif: string, amountInBtc: number, recipientAddress: string, fee: number) {
 	try {
+		console.log(`Создание транзакции: ${amountInBtc} BTC на адрес ${recipientAddress} с комиссией ${fee}%`);
+		
 		// Создаем приватный ключ из WIF
 		const privateKey = PrivateKey.fromWIF(wif);
 
 		// Получаем адрес из приватного ключа
 		const fromAddress = privateKey.toAddress();
+		console.log(`Адрес отправителя: ${fromAddress.toString()}`);
 
 		// Получаем UTXO (непотраченные выходы) для адреса
 		const url = `https://blockchain.info/unspent?active=${fromAddress}`;
@@ -49,6 +52,33 @@ export async function createTransaction(wif: string, amountInBtc: number, recipi
 		if (!utxos || utxos.length === 0) {
 			logErrorWithAutoDetails(`Нет доступных UTXO для данного адреса.`, 'createTransaction');
 			console.error('Нет доступных UTXO для данного адреса.');
+			return null;
+		}
+		
+		console.log(`Найдено ${utxos.length} UTXO для использования`);
+		
+		// Рассчитываем общую сумму UTXO
+		let totalUtxoAmount = 0;
+		utxos.forEach(utxo => {
+			totalUtxoAmount += utxo.value;
+		});
+		
+		console.log(`Общая сумма UTXO: ${totalUtxoAmount / 1e8} BTC`);
+		
+		// Рассчитываем сумму в сатоши
+		const amountInSatoshi = Math.floor(amountInBtc * 1e8);
+		
+		// Рассчитываем комиссию в сатоши (fee - это процент)
+		const feeInSatoshi = Math.floor(amountInSatoshi * (fee / 100));
+		
+		console.log(`Сумма перевода: ${amountInSatoshi / 1e8} BTC (${amountInSatoshi} сатоши)`);
+		console.log(`Комиссия: ${feeInSatoshi / 1e8} BTC (${feeInSatoshi} сатоши)`);
+		
+		// Проверяем, достаточно ли средств
+		if (totalUtxoAmount < amountInSatoshi + feeInSatoshi) {
+			logErrorWithAutoDetails(`Недостаточно средств для перевода. Требуется: ${(amountInSatoshi + feeInSatoshi) / 1e8} BTC, доступно: ${totalUtxoAmount / 1e8} BTC`, 'createTransaction');
+			console.error(`Недостаточно средств для перевода. Требуется: ${(amountInSatoshi + feeInSatoshi) / 1e8} BTC, доступно: ${totalUtxoAmount / 1e8} BTC`);
+			return null;
 		}
 
 		// Создаем транзакцию
@@ -56,21 +86,30 @@ export async function createTransaction(wif: string, amountInBtc: number, recipi
 
 		// Добавляем входы
 		transaction.from(utxos);
-		const amountInSatoshi = Math.floor(amountInBtc * 1e8)
+		
 		// Добавляем выходы
 		transaction.to(recipientAddress, amountInSatoshi); // Указываем сумму в сатоши (1 BTC = 1e8 сатоши)
-
-		// Устанавливаем комиссию
-		transaction.fee(fee);
+		
+		// Если есть сдача, отправляем ее обратно на адрес отправителя
+		const changeAmount = totalUtxoAmount - amountInSatoshi - feeInSatoshi;
+		if (changeAmount > 546) { // Минимальная сумма для UTXO
+			transaction.to(fromAddress.toString(), changeAmount);
+			console.log(`Сдача: ${changeAmount / 1e8} BTC (${changeAmount} сатоши)`);
+		}
 
 		// Подписываем транзакцию
 		transaction.sign(privateKey);
-
+		
+		// Сериализуем транзакцию
+		const serializedTx = transaction.serialize();
+		console.log(`Транзакция создана успешно, хеш: ${transaction.id}`);
+		
 		// Возвращаем хэш транзакции
-		return transaction.serialize();
+		return serializedTx;
 	} catch (error) {
-		logErrorWithAutoDetails(`Ошибка при создании транзакции:${error.message}`, 'createTransaction');
+		logErrorWithAutoDetails(`Ошибка при создании транзакции: ${error.message}`, 'createTransaction');
 		console.error('Ошибка при создании транзакции:', error.message);
+		return null;
 	}
 }
 
