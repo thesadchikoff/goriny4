@@ -347,7 +347,7 @@ export const getLogsGroupCommand = async (ctx: Context) => {
     }
     
     // Проверяем, что команда вызвана в нужном чате
-    if (ctx.chat?.id.toString() !== process.env.TELEGRAM_CHAT_ID) {
+    if (ctx.chat?.id.toString() !== messages.App.GroupId) {
       await ctx.reply('Эта команда доступна только в общем чате администраторов.');
       return;
     }

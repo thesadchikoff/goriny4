@@ -18,6 +18,8 @@ import { loggerMiddleware } from '@/middlewares/logger.middleware';
 import { logInfo, logError, logDebug, logErrorWithAutoDetails } from '@/core/logs/logger';
 import { BotContext } from '@/@types/scenes';
 import { startbotCommand } from '@/commands/startbot.command'
+import { startCommandMiddleware } from '@/middlewares/start-command.middleware'
+import { logsAccessMiddleware } from '@/middlewares/logs-access.middleware';
 
 // Добавляем обработчики неперехваченных исключений для предотвращения падения приложения
 process.on('uncaughtException', (error: Error) => {
@@ -107,6 +109,13 @@ bot.use(checkBlockMiddleware)
 bot.use(session())
 // Добавляем middleware логирования
 bot.use(loggerMiddleware)
+
+// Добавляем middleware для обработки команды /start в сценах
+bot.use(startCommandMiddleware())
+
+// Добавляем middleware для проверки доступа к логам
+// bot.use(logsAccessMiddleware())
+
 // @ts-ignore
 bot.use(Stage)
 
@@ -147,9 +156,6 @@ Stage.register(EditContractDescription)
 
 // Запускаем бота
 bot.launch().then(async () => {
-	// Инициализируем администратора
-	await initAdmin();
-	
 	// Логируем информацию о настройках логирования
 	const telegramLoggingEnabled = !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID);
 	logInfo('Статус логирования', {
