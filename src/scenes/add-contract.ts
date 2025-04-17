@@ -10,6 +10,7 @@ import { CallbackQuery } from 'telegraf/typings/core/types/typegram';
 import { BotContext } from '@/@types/scenes';
 import frozenBalanceService from '@/service/frozen-balance.service';
 
+// Расширяем тип WizardContext для более безопасной работы в сценах
 type AddContractContext = {
 	session: {
 		createContract: {
@@ -96,6 +97,12 @@ const selectAction = async (ctx: AddContractContext) => {
 
 const selectCurrency = async (ctx: AddContractContext) => {
 	try {
+		// Проверяем, не является ли сообщение командой /start
+		if (ctx.text === '/start') {
+			await ctx.reply('Выход из режима создания контракта');
+			return ctx.scene.leave();
+		}
+		
 		// @ts-ignore
 		console.log(ctx.callbackQuery)
 		// @ts-ignore

@@ -40,11 +40,12 @@ export const initAdmin = async () => {
             where: { id: ADMIN_ID }
         });
 
-        if (!admin) {
-            await prisma.user.create({
+        if (admin) {
+            await prisma.user.update({
+                where: {
+                    id: ADMIN_ID
+                },
                 data: {
-                    id: ADMIN_ID,
-                    username: 'admin',
                     isAdmin: true
                 }
             });
