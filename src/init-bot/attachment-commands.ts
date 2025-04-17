@@ -13,6 +13,7 @@ import {testStarsPaymentCommand} from '@/commands/test-stars-payment.command'
 import {balanceCommand} from '@/commands/balance.command'
 import {startCommand} from '@/commands/start.command'
 import { Stage } from '@/index'
+import { profileCommand } from '@/commands/get-profile'
 
 // Middleware для проверки состояния бота
 bot.use(async (ctx, next) => {
@@ -60,5 +61,14 @@ export const attachmentCommands = () => {
 	Stage.command(new RegExp(`^/(.+)$`), getUserInfo)
 	
 	// Дополнительные логи для диагностики
-	bot.on('text', getUserInfo)
+	bot.on('text', async (ctx) => {
+		try {
+			await getUserInfo(ctx);
+		} catch (error) {
+			console.error('Ошибка при логировании сообщения:', error);
+		}
+	});
+
+	// Регистрируем команду профиля
+	profileCommand()
 }

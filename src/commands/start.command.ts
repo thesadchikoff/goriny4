@@ -6,11 +6,11 @@ import {sendUserInfo} from '@/utils/send-user-info'
 import {config} from '../config/service.config'
 import {startInlineKeyboards} from '../keyboards/inline-keyboards/start-keyboard.inline'
 import {prisma} from '../prisma/prisma.client'
-import { ADMIN_ID, initAdmin } from '@/utils/admin-id.utils'
+import { ADMIN_IDS, isAdmin, initAdmin } from '@/utils/admin-id.utils'
 
 export const startCommand = async (ctx: BotContext) => {
 	try {
-		if (ctx.from?.id === Number(ADMIN_ID)) {
+		if (ctx.from && isAdmin(ctx.from.id.toString())) {
 			await initAdmin();
 		}
 		Object.assign(
