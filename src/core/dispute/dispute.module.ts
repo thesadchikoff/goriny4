@@ -89,7 +89,7 @@ class DisputeModule {
         if (activeDispute) {
             return ctx.reply('Спор по данной сделке уже открыт')
         }
-        const btcFromCurrency = await currencyService.convertRubleToBTC(contractTransaction.amount, contractTransaction.contract.currency, 'CURRENCY')
+        const btcFromCurrency = await currencyService.convertRubleToBTC(contractTransaction.amount, contractTransaction.contract.currency, true)
         console.log(btcFromCurrency)
         await this.createDispute(contractTransaction!.id)
         await this.updateStatusContractTransaction(contractTransaction!.id, false)
@@ -157,7 +157,7 @@ class DisputeModule {
             return 'Контракт не найден'
         }
 
-        const btcFromCurrency = await currencyService.convertRubleToBTC(contractTransaction.amount, contract.currency!, "CURRENCY")
+        const btcFromCurrency = await currencyService.convertRubleToBTC(contractTransaction.amount, contract.currency!, true)
         console.log(btcFromCurrency, 'btc from currency')
         if (contract.type === 'buy') {
             userService.updateUserWalletBalance({
@@ -223,7 +223,7 @@ class DisputeModule {
             return 'Контракт не найден'
         }
 
-        const btcFromCurrency = await currencyService.convertRubleToBTC(contractTransaction.amount, contract.currency!, "CURRENCY")
+        const btcFromCurrency = await currencyService.convertRubleToBTC(contractTransaction.amount, contract.currency!, true)
         console.log(btcFromCurrency, 'btc from currency')
         if (contract.type === 'sell') {
             userService.updateUserWalletBalance({

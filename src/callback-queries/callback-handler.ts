@@ -1280,6 +1280,83 @@ export const callbackHandler = () => {
 					return query.answerCbQuery('❌ Ошибка при снятии прав администратора', { show_alert: true });
 				}
 			}
+			
+			// Обработка пагинации списка пользователей
+			if (matchUsersPagination) {
+				try {
+					const page = parseInt(matchUsersPagination[1]);
+					const usersPerPage = 5;
+					const totalUsers = await prisma.user.count();
+					const totalPages = Math.ceil(totalUsers / usersPerPage);
+					
+					const users = await prisma.user.findMany({
+						skip: (page - 1) * usersPerPage,
+						take: usersPerPage,
+						orderBy: { createdAt: 'desc' },
+						include: { wallet: true }
+					});
+					
+					// Формируем кнопки пользователей
+					const userButtons = users.map(user => [
+						{
+							callback_data: `admin-user-details-${user.id}`,
+							text: `${user.isBlocked ? '🔒 ' : ''}${user.username || 'Нет имени'} ${user.isAdmin ? '👑' : ''} | ${user.wallet?.balance || 0} BTC`
+						}
+					]);
+					
+					// Добавляем кнопки пагинации
+					const paginationButtons = [];
+					
+					// Кнопка "Назад" (неактивна на первой странице)
+					if (page > 1) {
+						paginationButtons.push({
+							callback_data: `admin-users-page-${page - 1}`,
+							text: '◀️ Назад'
+						});
+					}
+					
+					// Номер текущей страницы и общее количество
+					paginationButtons.push({
+						callback_data: 'none',
+						text: `${page} из ${totalPages}`
+					});
+					
+					// Кнопка "Вперед" (неактивна на последней странице)
+					if (page < totalPages) {
+						paginationButtons.push({
+							callback_data: `admin-users-page-${page + 1}`,
+							text: 'Вперед ▶️'
+						});
+					}
+					
+					userButtons.push(paginationButtons);
+					
+					// Кнопка возврата в админ-панель
+					userButtons.push(previousButton('admin-panel'));
+					
+					return query.editMessageText(
+						`👥 <b>Управление пользователями</b>\n\n` +
+						`Всего пользователей: <b>${totalUsers}</b>\n\n` +
+						`Выберите пользователя для просмотра информации:`,
+						{
+							parse_mode: 'HTML',
+							reply_markup: {
+								inline_keyboard: userButtons
+							}
+						}
+					);
+				} catch (error) {
+					console.error('[ADMIN_USERS_PAGINATION] Error:', error);
+					return query.editMessageText(
+						'❌ Произошла ошибка при получении списка пользователей',
+						{
+							reply_markup: {
+								inline_keyboard: [previousButton('admin-panel')]
+							}
+						}
+					);
+				}
+			}
 		} catch (error) {
 			console.log(error)
 			return query.reply('❗️ Произошла непредвиденная ошибка')

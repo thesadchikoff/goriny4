@@ -309,19 +309,63 @@ const selectPaymentMethod = async (ctx: AddContractContext) => {
 			id: ctx.from!.id
 		})
 
-		// Проверяем баланс только если это операция продажи
-		// @ts-ignore
+		// Получаем пользователя и его баланс
+		const balanceInRubles = await currencyService.convertRubleToBTC(
+			user?.wallet?.balance || 0,
+			ctx.session.currentCurrency,
+			true
+		)
+		
+		// Проверяем, достаточно ли у пользователя средств для продажи (только для контрактов типа "sell")
 		if (ctx.session.actionType === "sell") {
+			// Проверка баланса пользователя
 			if (!user?.wallet) {
-				await ctx.reply('У вас нет кошелька. Пожалуйста, создайте кошелек.')
-				return
+				return ctx.reply('❌ У вас нет кошелька. Пожалуйста, создайте кошелек.', {
+					reply_markup: {
+						inline_keyboard: [
+							[{ callback_data: 'main_menu', text: 'В главное меню' }]
+						]
+					}
+				});
 			}
-			// @ts-ignore
-			const userCurrencyToBTC = await currencyService.convertRubleToBTC(Number(ctx.scene.session.maxPrice), ctx.session.currentCurrency, "CURRENCY")
-			if (user.wallet.balance < userCurrencyToBTC) {
-				await ctx.reply('Сумма на балансе меньше суммы лимита')
-				return
+			
+			// Проверяем, достаточно ли средств
+			if (balanceInRubles < ctx.scene.session.maxPrice) {
+				return ctx.reply(`❌ <b>Недостаточно средств на балансе для создания объявления</b>\n\n💰 Ваш баланс: ${currencyFormatter(balanceInRubles, ctx.session.currentCurrency)}\n🔄 Требуется: ${currencyFormatter(ctx.scene.session.maxPrice, ctx.session.currentCurrency)}`, {
+					parse_mode: 'HTML',
+					reply_markup: {
+						inline_keyboard: [
+							[{ callback_data: 'main_menu', text: 'В главное меню' }]
+						]
+					}
+				});
 			}
+			
+			// Конвертируем максимальную сумму в BTC для заморозки
+			const maxAmountInBTC = await currencyService.convertRubleToBTC(
+				ctx.scene.session.maxPrice,
+				ctx.session.currentCurrency,
+				false
+			)
+			
+			// Проверяем доступность средств с учетом уже замороженных через сервис
+			const balanceCheck = await frozenBalanceService.checkAvailableBalance(
+				user.id, 
+				maxAmountInBTC
+			);
+			
+			if (!balanceCheck.sufficient) {
+				return ctx.reply(`❌ <b>Недостаточно средств на балансе для создания объявления</b>\n\n💰 Ваш баланс: ${balanceCheck.totalBalance.toFixed(8)} BTC\n🧊 Уже заморожено в других объявлениях: ${balanceCheck.frozenBalance.toFixed(8)} BTC\n💵 Доступно: ${balanceCheck.availableBalance.toFixed(8)} BTC\n🔄 Требуется: ${maxAmountInBTC.toFixed(8)} BTC`, {
+					parse_mode: 'HTML',
+					reply_markup: {
+						inline_keyboard: [
+							[{ callback_data: 'main_menu', text: 'В главное меню' }]
+						]
+					}
+				});
+			}
+			
+			console.log(`[CONTRACT_CREATE] Freezing ${maxAmountInBTC} BTC for contract`);
 		}
 
 		const paymentMethods = await prisma.paymentMethod.findMany()
@@ -407,6 +451,7 @@ const writePaymentMethod = async (ctx: AddContractContext) => {
 const createContract = async (ctx: AddContractContext) => {
 	try {
 		let initialContractRequisite
+		let maxAmountInBTC = 0
 		const callbackQuery = ctx.callbackQuery
 		if (callbackQuery?.data) {
 			const requisite = await prisma.requisite.findFirst({
@@ -423,16 +468,6 @@ const createContract = async (ctx: AddContractContext) => {
 			id: ctx.from.id
 		})
 		
-		// Конвертируем максимальную сумму в BTC
-		const maxAmountInBTC = await currencyService.convertRubleToBTC(
-			ctx.scene.session.maxPrice,
-			ctx.session.currentCurrency,
-			"CURRENCY"
-		)
-		
-		// Конвертируем цену за 1 BTC
-		const pricePerCoin = ctx.session.pricePerCoin
-		
 		// Проверяем, достаточно ли у пользователя средств для продажи (только для контрактов типа "sell")
 		if (ctx.session.actionType === "sell") {
 			// Проверка баланса пользователя
@@ -445,6 +480,32 @@ const createContract = async (ctx: AddContractContext) => {
 					}
 				});
 			}
+			
+			// Конвертируем баланс в BTC в рубли для проверки
+			const balanceInRubles = await currencyService.convertRubleToBTC(
+				user.wallet.balance,
+				ctx.session.currentCurrency,
+				true  // BTC -> Рубли
+			)
+			
+			// Проверяем, достаточно ли средств
+			if (balanceInRubles < ctx.scene.session.maxPrice) {
+				return ctx.reply(`❌ <b>Недостаточно средств на балансе для создания объявления</b>\n\n💰 Ваш баланс: ${currencyFormatter(balanceInRubles, ctx.session.currentCurrency)}\n🔄 Требуется: ${currencyFormatter(ctx.scene.session.maxPrice, ctx.session.currentCurrency)}`, {
+					parse_mode: 'HTML',
+					reply_markup: {
+						inline_keyboard: [
+							[{ callback_data: 'main_menu', text: 'В главное меню' }]
+						]
+					}
+				});
+			}
+			
+			// Конвертируем максимальную сумму в BTC для заморозки
+			maxAmountInBTC = await currencyService.convertRubleToBTC(
+				ctx.scene.session.maxPrice,
+				ctx.session.currentCurrency,
+				false  // Рубли -> BTC
+			)
 			
 			// Проверяем доступность средств с учетом уже замороженных через сервис
 			const balanceCheck = await frozenBalanceService.checkAvailableBalance(

@@ -24,7 +24,7 @@ export const walletAction = async (
 		})
 		const diffInDays = totalDays(user?.createdAt)
 		const wallet = await createWallet(ctx.from!.id)
-		const convertToRuble = await currencyService.convertRubleToBTC(wallet?.balance)
+		const convertToRuble = await currencyService.convertRubleToBTC(wallet?.balance, 'rub', true)
         const contractTransactions = await prisma.contractTransaction.findMany({
 			where: {
 				sellerId: ctx.from!.id.toString(),
@@ -40,7 +40,7 @@ export const walletAction = async (
 				},
 			})
 			if (userWallet && userWallet.wallet) {
-				const convertToRuble = await currencyService.convertRubleToBTC(userWallet.wallet.balance)
+				const convertToRuble = await currencyService.convertRubleToBTC(userWallet.wallet.balance, 'rub', true)
                 const userUrl = generateUrlForUser(user?.login!)
 				return ctx.editMessageText(
 					`🏦 <b>${
@@ -63,7 +63,6 @@ export const walletAction = async (
 					)} BTC\n<b>Вы защищены нашим сервисом от взлома и кражи ваших BTC.</b>`,
 					{
 						parse_mode: 'HTML',
-
 						reply_markup: {
 							inline_keyboard: [
 								...walletInlineKeyboard,
@@ -90,7 +89,10 @@ export const walletAction = async (
 		return ctx.editMessageText(
 			`🏦 <b>${
 				config.shopName
-			}</b>\n\n<b>Ваш баланс:</b> ${wallet.balance} BTC ≈ ${convertToRuble} RUB\n\n<b>Вы пополнили:</b> ${
+			}</b>\n\n<b>Ваш баланс:</b> ${wallet.balance} BTC ≈ ${currencyFormatter(
+				Number(convertToRuble),
+				'RUB'
+			)}\n\n<b>Вы пополнили:</b> ${
 				user?.totalAmountAdd
 			} BTC\n<b>Вы вывели:</b> ${
 				user?.totalAmountReplenish
@@ -105,7 +107,6 @@ export const walletAction = async (
 			)} BTC\n<b>Вы защищены нашим сервисом от взлома и кражи ваших BTC.</b>`,
 			{
 				parse_mode: 'HTML',
-
 				reply_markup: {
 					inline_keyboard: [
 						...walletInlineKeyboard,
