@@ -12,7 +12,7 @@ import { logInfo } from '@/core/logs/logger';
  * @returns Объект с путями к различным типам логов
  */
 const getLogFiles = () => {
-  const logsDir = path.resolve(process.cwd(), 'logs');
+  const logsDir = path.resolve(process.cwd(), 'log');
   const files = fs.readdirSync(logsDir);
   
   // Находим последние файлы всех типов логов

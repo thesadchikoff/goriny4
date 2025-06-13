@@ -34,7 +34,7 @@ TELEGRAM_CHAT_ID=123456789    # ID чата для отправки логов
 ### Импорт функций логирования
 
 ```typescript
-import { logInfo, logError, logDebug, logWarn } from '@/core/logs/logger';
+import { logInfo, logError, logDebug, logWarn } from '@/core/log/logger';
 ```
 
 ### Логирование информационных сообщений
