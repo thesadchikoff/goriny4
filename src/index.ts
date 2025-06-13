@@ -12,7 +12,7 @@ import { createBitcoinWallet } from "@/trust-wallet/bitcoin-wallet";
 import { BitcoinNetwork } from "@/trust-wallet/bitcoin-balance";
 import { scheduleLogsDelivery, scheduleLogsCleanup } from '@/commands/get-logs.command';
 import { EditContractDescription } from './scenes/edit-contract-description'
-import { ADMIN_ID, initAdmin } from './utils/admin-id.utils';
+import { ADMIN_IDS, isAdmin } from './utils/admin-id.utils';
 import { Context } from 'telegraf';
 import { loggerMiddleware } from '@/middlewares/logger.middleware';
 import { logInfo, logError, logDebug, logErrorWithAutoDetails } from '@/core/logs/logger';
@@ -20,6 +20,7 @@ import { BotContext } from '@/@types/scenes';
 import { startbotCommand } from '@/commands/startbot.command'
 import { startCommandMiddleware } from '@/middlewares/start-command.middleware'
 import { logsAccessMiddleware } from '@/middlewares/logs-access.middleware';
+import { startBTCRateNotifier } from './cron/btc-rate-notifier';
 
 // Добавляем обработчики неперехваченных исключений для предотвращения падения приложения
 process.on('uncaughtException', (error: Error) => {
@@ -38,13 +39,16 @@ process.on('uncaughtException', (error: Error) => {
 		
 		console.error('КРИТИЧЕСКАЯ ОШИБКА (ПЕРЕХВАЧЕНА):', error);
 		
-		// Отправляем сообщение администратору только для не-телеграм ошибок
+		// Отправляем сообщение всем администраторам только для не-телеграм ошибок
 		if (!isTelegramError) {
-			bot.telegram.sendMessage(
-				ADMIN_ID,
-				`🚨 КРИТИЧЕСКАЯ ОШИБКА!\n\n${errorMessage}\n\nОшибка перехвачена, бот продолжает работу.`
-			).catch(err => {
-				console.error('Не удалось отправить сообщение об ошибке админу:', err);
+			// Отправляем уведомление каждому администратору
+			ADMIN_IDS.forEach(adminId => {
+				bot.telegram.sendMessage(
+					adminId,
+					`🚨 КРИТИЧЕСКАЯ ОШИБКА!\n\n${errorMessage}\n\nОшибка перехвачена, бот продолжает работу.`
+				).catch(err => {
+					console.error(`Не удалось отправить сообщение об ошибке админу ${adminId}:`, err);
+				});
 			});
 		}
 	} catch (handlerError) {
@@ -69,13 +73,16 @@ process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
 		
 		console.error('НЕОБРАБОТАННОЕ ОБЕЩАНИЕ (ПЕРЕХВАЧЕНО):', reason);
 		
-		// Отправляем сообщение администратору только для не-телеграм ошибок
+		// Отправляем сообщение администраторам только для не-телеграм ошибок
 		if (!isTelegramError) {
-			bot.telegram.sendMessage(
-				ADMIN_ID,
-				`⚠️ НЕОБРАБОТАННОЕ ОБЕЩАНИЕ!\n\n${errorMessage}\n\nОшибка перехвачена, бот продолжает работу.`
-			).catch(err => {
-				console.error('Не удалось отправить сообщение об ошибке админу:', err);
+			// Отправляем уведомление каждому администратору
+			ADMIN_IDS.forEach(adminId => {
+				bot.telegram.sendMessage(
+					adminId,
+					`⚠️ НЕОБРАБОТАННОЕ ОБЕЩАНИЕ!\n\n${errorMessage}\n\nОшибка перехвачена, бот продолжает работу.`
+				).catch(err => {
+					console.error(`Не удалось отправить сообщение об ошибке админу ${adminId}:`, err);
+				});
 			});
 		}
 	} catch (handlerError) {
@@ -125,6 +132,10 @@ bot.telegram.setMyCommands([
 		description: 'Запустить бота',
 	},
 	{
+		command: '/profile',
+		description: 'Просмотр профиля'
+	},
+	{
 		command: '/wallet',
 		description: 'Показать баланс кошелька',
 	},
@@ -148,6 +159,10 @@ scheduleLogsDelivery(bot);
 // Запускаем задачу еженедельной очистки логов
 scheduleLogsCleanup();
 
+// Запускаем сервис уведомлений об изменении курса BTC
+logInfo('Запуск сервиса уведомлений о курсе BTC');
+startBTCRateNotifier();
+
 callbackHandler()
 initConfig()
 
@@ -162,18 +177,23 @@ bot.launch().then(async () => {
 		telegramLoggingEnabled,
 		fileLoggingEnabled: true,
 		startTime: new Date().toISOString(),
-		adminId: ADMIN_ID,
+		adminIds: ADMIN_IDS,
 		nodeEnv: process.env.NODE_ENV || 'development'
 	});
 	
-	// Отправляем сообщение администратору только при запуске
-	await bot.telegram.sendMessage(
-		ADMIN_ID,
-		'🤖 Бот успешно запущен и готов к работе!'
-	);
+	// Отправляем сообщение всем администраторам при запуске
+	for (const adminId of ADMIN_IDS) {
+		await bot.telegram.sendMessage(
+			adminId,
+			'🤖 Бот успешно запущен и готов к работе!'
+		).catch(err => {
+			console.error(`Не удалось отправить уведомление о запуске админу ${adminId}:`, err);
+		});
+	}
+	
 	logInfo('Бот успешно запущен', {
 		startTime: new Date().toISOString(),
-		adminId: ADMIN_ID,
+		adminIds: ADMIN_IDS,
 		nodeEnv: process.env.NODE_ENV || 'development'
 	});
 }).catch((error: Error) => {

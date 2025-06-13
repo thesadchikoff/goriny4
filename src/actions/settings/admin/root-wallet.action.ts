@@ -17,7 +17,7 @@ const masterWalletKeyboard: InlineKeyboardButton[][] = [
 export const rootWalletAction = async (ctx: BotContext) => {
     const adminWallet = await configService.adminWallet()
     const walletBalance = await getBitcoinBalance(adminWallet.adminWalletAddress!, BitcoinNetwork.MAINNET, BalanceApiType.BLOCKCHAIN_INFO)
-    const convertToRuble = await currencyService.convertRubleToBTC(walletBalance.balance)
+    const convertToRuble = await currencyService.convertRubleToBTC(walletBalance.balance, 'rub')
     return ctx.editMessageText(`<b>Информация о root-кошельке</b>\n\n<b>Адрес кошелька:</b> <code>${adminWallet.adminWalletAddress}</code>\n<b>WIF кошелька:</b> <code>${adminWallet.adminWalletWIF}</code>\n<b>Баланс:</b> ${walletBalance.balance.toFixed(8)} BTC ~ ${currencyFormatter(convertToRuble, "RUB")}\n<b>Всего транзакций:</b> ${walletBalance.txCount || 0}`, {
         parse_mode: 'HTML',
         reply_markup: {

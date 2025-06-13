@@ -197,7 +197,7 @@ const doneContract = async (ctx: WizardContext) => {
 					},
 				});
 				
-				const btcPerCurrency = await currencyService.convertRubleToBTC(sendPrice, contract.currency, "CURRENCY");
+				const btcPerCurrency = await currencyService.convertRubleToBTC(sendPrice, contract.currency, true);
 				
 				await ctx.telegram.sendMessage(
 					contract.author.id,

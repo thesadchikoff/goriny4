@@ -1,5 +1,6 @@
 import { Context, Markup } from 'telegraf';
 import { BalanceService } from '@/models/user-balance';
+import { ADMIN_IDS } from '@/utils/admin-id.utils';
 
 // Команда для просмотра баланса
 export const balanceCommand = async (ctx: Context) => {
@@ -151,16 +152,18 @@ withdrawScene.action('confirm_withdraw', async (ctx) => {
             `Вывод средств на реквизиты: ${requisites}`
         );
         
-        // Отправляем уведомление администратору
-        // Здесь нужно заменить ADMIN_ID на реальный ID администратора
-        const ADMIN_ID = process.env.ADMIN_ID || '123456789';
-        await ctx.telegram.sendMessage(
-            ADMIN_ID,
-            `Запрос на вывод средств:\n\n` +
-            `Пользователь: ${ctx.from.username || ctx.from.id}\n` +
-            `Сумма: ${amount} звезд\n` +
-            `Реквизиты: ${requisites}`
-        );
+        // Отправляем уведомление всем администраторам
+        for (const adminId of ADMIN_IDS) {
+            await ctx.telegram.sendMessage(
+                adminId,
+                `Запрос на вывод средств:\n\n` +
+                `Пользователь: ${ctx.from.username || ctx.from.id}\n` +
+                `Сумма: ${amount} звезд\n` +
+                `Реквизиты: ${requisites}`
+            ).catch(err => {
+                console.error(`Не удалось отправить уведомление админу ${adminId}:`, err);
+            });
+        }
         
         await ctx.reply(
             'Ваш запрос на вывод средств принят!\n\n' +

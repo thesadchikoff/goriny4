@@ -1,56 +1,91 @@
-import crypto from 'crypto';
 import { prisma } from '../prisma/prisma.client';
 
-export const ADMIN_ID = '360000840';
-const SECRET_KEY = process.env.ADMIN_SECRET_KEY || 'your-secret-key-here';
-const IV_LENGTH = 16; // Для AES это 16 байт
+// Массив ID администраторов
+export const ADMIN_IDS = ['360000840'];
 
-// Генерируем ключ правильной длины для AES-256 (32 байта)
-const getKey = (): Buffer => {
-    return crypto.scryptSync(SECRET_KEY, 'salt', 32);
-};
+// Оставляем для обратной совместимости, но не рекомендуется использовать
+export const ADMIN_ID = ADMIN_IDS[0];
 
+/**
+ * Получает зашифрованный список ID администраторов
+ * @deprecated Используйте массив ADMIN_IDS напрямую
+ */
 export const getHashedAdminId = (): string => {
-    const iv = crypto.randomBytes(IV_LENGTH);
-    const key = getKey();
-    const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-    let encrypted = cipher.update(ADMIN_ID, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    return iv.toString('hex') + ':' + encrypted;
+    // Возвращаем строку с разделителями для всех админов, а не только первого
+    return ADMIN_IDS.join(',');
 };
 
+/**
+ * Получает расшифрованный список ID администраторов
+ * @deprecated Используйте массив ADMIN_IDS напрямую
+ */
 export const getDecryptedAdminId = (): string => {
-    const textParts = getHashedAdminId().split(':');
-    const iv = Buffer.from(textParts.shift()!, 'hex');
-    const encryptedText = Buffer.from(textParts.join(':'), 'hex');
-    const key = getKey();
-    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-    let decrypted = decipher.update(encryptedText);
-    decrypted = Buffer.concat([decrypted, decipher.final()]);
-    return decrypted.toString();
+    // Возвращаем строку с разделителями для всех админов, а не только первого
+    return ADMIN_IDS.join(',');
 };
 
+/**
+ * Проверяет, является ли пользователь администратором
+ * @param userId ID пользователя для проверки
+ * @returns true, если пользователь является администратором
+ */
 export const isAdmin = (userId: string): boolean => {
-    return userId === getDecryptedAdminId();
+    return ADMIN_IDS.includes(userId);
 };
 
+/**
+ * Проверяет, является ли пользователь мастер-админом
+ * @param userId ID пользователя для проверки
+ * @returns true, если пользователь является мастер-админом
+ */
+export const isMasterAdmin = (userId: string): boolean => {
+    return ADMIN_IDS.includes(userId);
+};
+
+/**
+ * Определяет тип администратора для отображения
+ * @param userId ID пользователя
+ * @param isAdminFlag флаг isAdmin из базы данных
+ * @returns Строка с типом администратора для отображения
+ */
+export const getAdminType = (userId: string, isAdminFlag: boolean): string => {
+    // Если у пользователя нет флага isAdmin, то он обычный пользователь
+    if (!isAdminFlag) {
+        return '👤 Пользователь';
+    }
+    
+    // Если ID пользователя есть в списке ADMIN_IDS, то он мастер-админ
+    if (ADMIN_IDS.includes(userId)) {
+        return '👑 System Admin';
+    }
+    
+    // В остальных случаях - обычный администратор (с флагом isAdmin)
+    return '👑 Администратор';
+};
+
+/**
+ * Инициализирует всех администраторов в базе данных
+ */
 export const initAdmin = async () => {
     try {
-        const admin = await prisma.user.findUnique({
-            where: { id: ADMIN_ID }
-        });
-
-        if (admin) {
-            await prisma.user.update({
-                where: {
-                    id: ADMIN_ID
-                },
-                data: {
-                    isAdmin: true
-                }
+        // Обновляем права для всех пользователей в списке администраторов
+        for (const adminId of ADMIN_IDS) {
+            const admin = await prisma.user.findUnique({
+                where: { id: adminId }
             });
+
+            if (admin) {
+                await prisma.user.update({
+                    where: {
+                        id: adminId
+                    },
+                    data: {
+                        isAdmin: true
+                    }
+                });
+            }
         }
     } catch (error) {
-        console.error('Ошибка при инициализации администратора:', error);
+        console.error('Ошибка при инициализации администраторов:', error);
     }
 }; 
