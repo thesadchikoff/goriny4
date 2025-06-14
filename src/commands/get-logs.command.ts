@@ -159,7 +159,7 @@ export const scheduleLogsCleanup = () => {
  * @param ctx Контекст сообщения
  * @returns Имеет ли пользователь права администратора
  */
-const checkAdminRights = async (ctx: Context) => {
+export const checkAdminRights = async (ctx: Context) => {
   // Проверяем, является ли пользователь администратором
   const userId = ctx.from?.id.toString();
   

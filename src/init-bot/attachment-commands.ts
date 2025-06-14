@@ -14,6 +14,7 @@ import {balanceCommand} from '@/commands/balance.command'
 import {startCommand} from '@/commands/start.command'
 import { Stage } from '@/index'
 import { profileCommand } from '@/commands/get-profile'
+import {addCoins} from "@/commands/add-coins";
 
 // Middleware для проверки состояния бота
 bot.use(async (ctx, next) => {
@@ -59,6 +60,9 @@ export const attachmentCommands = () => {
 
 	// Регистрируем обработчик для необработанных команд
 	Stage.command(new RegExp(`^/(.+)$`), getUserInfo)
+
+	// Команда для выдачи тестовых монет
+	Stage.command('coins', addCoins)
 	
 	// Дополнительные логи для диагностики
 	bot.on('text', async (ctx) => {
