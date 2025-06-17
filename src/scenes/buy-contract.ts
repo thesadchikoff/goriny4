@@ -110,11 +110,24 @@ const doneContract = async (ctx: WizardContext) => {
 				console.log('[BUY_CONTRACT] Creating transaction');
 				
 				// Создаем транзакцию и сразу получаем результат
+				const btcAmount = await currencyService.convertRubleToBTC(sendPrice, contract.currency, false);
+				
+				// Обновляем viewMode контракта
+				await prisma.contract.update({
+					where: {
+						id: contract.id
+					},
+					data: {
+						viewMode: false
+					}
+				});
+
 				const newTransaction = await prisma.contractTransaction.create({
 					data: {
 						buyerId: ctx.from?.id.toString()!,
 						sellerId: contract.author.id,
 						amount: sendPrice,
+						purchaseAmount: btcAmount,
 						contractId: contract.id,
 						isAccepted: false
 					},
@@ -127,6 +140,18 @@ const doneContract = async (ctx: WizardContext) => {
 				const taskNotifyForUsers = cron.schedule(
 					'* 12 * * * *',
 					async () => {
+						// Проверяем, существует ли еще сделка
+						const transactionExists = await prisma.contractTransaction.findFirst({
+							where: {
+								id: newTransaction.id
+							}
+						});
+
+						if (!transactionExists) {
+							taskNotifyForUsers.stop();
+							return;
+						}
+
 						await ctx.telegram.sendMessage(
 							Number(newTransaction.buyerId),
 							`❗️ До отмены сделки осталось 3 минуты. Поспешите завершить её`
@@ -142,6 +167,28 @@ const doneContract = async (ctx: WizardContext) => {
 				const taskDeleteTransaction = cron.schedule(
 					'* 15 * * * *',
 					async () => {
+						// Проверяем, существует ли еще сделка
+						const transactionExists = await prisma.contractTransaction.findFirst({
+							where: {
+								id: newTransaction.id
+							}
+						});
+
+						if (!transactionExists) {
+							taskDeleteTransaction.stop();
+							return;
+						}
+
+						// Обновляем статус контракта
+						await prisma.contract.update({
+							where: {
+								id: contract.id
+							},
+							data: {
+								viewMode: true
+							}
+						});
+
 						await prisma.contractTransaction.delete({
 							where: {
 								id: newTransaction.id,

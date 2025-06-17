@@ -79,6 +79,16 @@ export const cancelTransactionAction = async (ctx: any) => {
         // Удаляем транзакцию напрямую
         console.log('[CANCEL_TRANSACTION] Deleting transaction with ID:', transaction.id);
         try {
+            // Обновляем статус контракта
+            await prisma.contract.update({
+                where: {
+                    id: transaction.contractId
+                },
+                data: {
+                    viewMode: true
+                }
+            });
+
             await prisma.contractTransaction.delete({
                 where: {
                     id: transaction.id

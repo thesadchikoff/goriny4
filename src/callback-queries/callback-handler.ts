@@ -394,6 +394,7 @@ export const callbackHandler = () => {
 							Contract: {
 								where: {
 									type: 'buy',
+									viewMode: true
 								},
 							},
 						},
@@ -458,17 +459,18 @@ export const callbackHandler = () => {
 					// 			show_alert: true,
 					// 		}
 					// 	)
-					const paymentMethods = await prisma.paymentMethod.findMany({
+					const paymentMethodsForSell = await prisma.paymentMethod.findMany({
 						include: {
 							Contract: {
 								where: {
 									type: 'sell',
+									viewMode: true
 								},
 							},
 						},
 					})
 					const paymentMethodButton: InlineKeyboardButton[][] =
-						paymentMethods.map(paymentMethod => {
+						paymentMethodsForSell.map(paymentMethod => {
 							return [
 								{
 									callback_data: `sell_payment_method_${paymentMethod.id}`,

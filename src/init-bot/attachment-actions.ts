@@ -40,6 +40,7 @@ import { editContractDescriptionAction } from '@/actions/contracts/edit-contract
 import { myCodes } from '../callbacks/my-codes'
 import { deleteCode } from '../callbacks/delete-code'
 import { BalanceService } from '@/models/user-balance';
+import { paymentConfirmationAction } from '@/actions/contracts/payment-confirmation.action'
 
 export const attachmentActions = () => {
 	// @ts-ignore
@@ -201,4 +202,8 @@ export const attachmentActions = () => {
 		
 		await ctx.reply(`История транзакций:\n\n${historyText}`);
 	});
+
+	// Обработчики для кнопок подтверждения оплаты
+	bot.action(/^payment-contract-(.+)$/, paymentConfirmationAction)
+	bot.action(/^payment-successful-(.+)$/, paymentConfirmationAction)
 }

@@ -87,16 +87,16 @@ const sendingMessage = async (ctx: WizardContext) => {
 			ctx.session.tradeAction = 'buy'
 			inlineButtons[0].push({
 				callback_data: isBuyer
-					? `payment-contract-${activeBuyerId}`
-					: `payment-successful-${activeBuyerId}`,
+					? `payment-contract-${contract.id}`
+					: `payment-successful-${contract.id}`,
 				text: isBuyer ? '✅ Я оплатил' : '✅ Деньги получены',
 			})
 		} else {
 			ctx.session.tradeAction = 'sell'
 			inlineButtons[0].push({
 				callback_data: isBuyer
-					? `payment-successful-${activeBuyerId}`
-					: `payment-contract-${activeBuyerId}`,
+					? `payment-successful-${contract.id}`
+					: `payment-contract-${contract.id}`,
 				text: isBuyer ? '✅ Деньги получены' : '✅ Я оплатил',
 			})
 		}
