@@ -28,14 +28,6 @@ export const editContractDescriptionAction = async (ctx: BotContext) => {
         // Сохраняем ID контракта в сессии
         ctx.session.contractId = contractId
         
-        // Отправляем сообщение с просьбой ввести новое описание
-        await ctx.editMessageText(
-            '📝 Введите новое описание для контракта:',
-            {
-                parse_mode: 'HTML'
-            }
-        )
-        
         // Переходим к сцене редактирования описания
         return ctx.scene.enter('edit-contract-description')
     } catch (error) {

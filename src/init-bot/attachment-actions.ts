@@ -28,7 +28,8 @@ import {
 	buyPaymentMethodAction,
 	sellPaymentMethodAction,
 	deleteContactAddressAction,
-	contactAddressAction
+	contactAddressAction,
+	cancelTransactionAction
 } from '@/actions'
 import {startCommand} from '@/commands/start.command'
 import {bot} from '@/config/bot'
@@ -115,6 +116,10 @@ export const attachmentActions = () => {
 	bot.action(QueryTriggers.ACTIVE_CONTRACTS(), activeContractsAction)
 	// @ts-ignore
 	bot.action('our_service', serviceAction)
+	// @ts-ignore
+	bot.action(QueryTriggers.SEND_MESSAGE_TO_REGEXP(), (ctx) => ctx.scene.enter('send_message'))
+	// @ts-ignore
+	bot.action(QueryTriggers.CANCEL_TRANSACTION_REGEXP(), cancelTransactionAction)
 
 	// Регистрируем обработчики для промокодов
 	bot.action('my_codes', myCodes)

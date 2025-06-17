@@ -38,9 +38,11 @@ class CurrencyService {
 		}
 
 		if (isBTCTOCurrency) {
+			// Конвертация из BTC в валюту
 			return parseFloat((value * rate).toFixed(2))
 		}
 
+		// Конвертация из валюты в BTC
 		return parseFloat((value / rate).toFixed(8))
 	}
 

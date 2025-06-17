@@ -23,6 +23,7 @@ import {serviceAction} from "@/actions/service";
 import { selfContractAction, deleteContractAction, buyContractAction, sellContractAction, buyPaymentMethodAction, sellPaymentMethodAction } from './contracts';
 import { deleteContactAddressAction, contactAddressAction } from './contacts';
 import { editContractDescriptionAction } from './contracts/edit-contract-description.action'
+import { cancelTransactionAction } from './transfer/cancel-transaction.action'
 
 export {
 	cancelSceneAction,
@@ -56,5 +57,6 @@ export {
 	sellPaymentMethodAction,
 	deleteContactAddressAction,
 	contactAddressAction,
-	editContractDescriptionAction
+	editContractDescriptionAction,
+	cancelTransactionAction
 }

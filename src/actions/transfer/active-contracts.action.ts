@@ -28,7 +28,7 @@ export const activeContractsAction = async (ctx: BotContext) => {
             const amountToBtc = await currencyService.convertRubleToBTC(
                 activeContract.amount,
                 activeContract.contract.currency!,
-                "CURRENCY"
+                false
             );
             return [
                 {

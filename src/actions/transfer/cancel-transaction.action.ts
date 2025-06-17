@@ -90,22 +90,27 @@ export const cancelTransactionAction = async (ctx: any) => {
             return ctx.answerCbQuery('Ошибка при удалении транзакции', { show_alert: true });
         }
         
-        // Оповещаем продавца, если есть ID продавца
-        if (transaction.sellerId) {
-            console.log('[CANCEL_TRANSACTION] Notifying seller:', transaction.sellerId);
+        // Определяем, кто отменяет сделку
+        const isBuyerCancelling = userId === transaction.buyerId;
+        const cancellerRole = isBuyerCancelling ? 'покупатель' : 'продавец';
+        const otherPartyRole = isBuyerCancelling ? 'продавец' : 'покупатель';
+        const otherPartyId = isBuyerCancelling ? transaction.sellerId : transaction.buyerId;
+        const otherPartyLogin = isBuyerCancelling ? transaction.seller?.login : transaction.buyer?.login;
+        
+        // Оповещаем другую сторону сделки
+        if (otherPartyId) {
+            console.log(`[CANCEL_TRANSACTION] Notifying ${otherPartyRole}:`, otherPartyId);
             await ctx.telegram.sendMessage(
-                transaction.sellerId,
-                `❌ <b>Сделка отменена</b>\n\nПокупатель отменил сделку #${transaction.contract.code}\nСумма: ${currencyFormatter(transaction.amount, transaction.contract.currency || 'RUB')}`,
+                otherPartyId,
+                `❌ <b>Сделка отменена</b>\n\n${cancellerRole} отменил сделку #${transaction.contract.code}\nСумма: ${currencyFormatter(transaction.amount, transaction.contract.currency || 'RUB')}`,
                 { parse_mode: 'HTML' }
             );
         }
         
-        // Оповещаем покупателя и обновляем сообщение
-        const sellerLogin = transaction.seller?.login || 'Неизвестный';
-        
-        console.log('[CANCEL_TRANSACTION] Updating message for buyer');
+        // Оповещаем отменяющего и обновляем сообщение
+        console.log('[CANCEL_TRANSACTION] Updating message for canceller');
         return ctx.editMessageText(
-            `❌ <b>Сделка отменена</b>\n\nВы отменили сделку #${transaction.contract.code}\nСумма: ${currencyFormatter(transaction.amount, transaction.contract.currency || 'RUB')}\n\nПродавец: ${sellerLogin}\nСпособ оплаты: ${transaction.contract.ContractRequisite?.paymentMethod.name || 'Не указан'}`,
+            `❌ <b>Сделка отменена</b>\n\nВы отменили сделку #${transaction.contract.code}\nСумма: ${currencyFormatter(transaction.amount, transaction.contract.currency || 'RUB')}\n\n${otherPartyRole}: ${otherPartyLogin}\nСпособ оплаты: ${transaction.contract.ContractRequisite?.paymentMethod.name || 'Не указан'}`,
             {
                 parse_mode: 'HTML',
                 reply_markup: {
