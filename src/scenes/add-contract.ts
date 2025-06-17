@@ -546,7 +546,8 @@ const createContract = async (ctx: AddContractContext) => {
 				currency: ctx.session.currentCurrency,
 				maxPrice: ctx.scene.session.maxPrice,
 				contractRequisiteId: initialContractRequisite.id,
-				paymentMethodId: callbackQuery?.data ? ctx.session.currentRequisite.paymentMethodId : Number(currentPaymentMethodId)
+				paymentMethodId: callbackQuery?.data ? ctx.session.currentRequisite.paymentMethodId : Number(currentPaymentMethodId),
+				viewMode: true
 			}
 		})
 
